@@ -1,7 +1,7 @@
 /* 今天吃什么 · Service Worker
  * 目标：首屏离线可用。改了页面内容后，把 VERSION 加一，用户下次打开会换新。
  */
-var VERSION = 'v2';
+var VERSION = 'v4';
 var CACHE = 'eat-what-' + VERSION;
 
 var ASSETS = [

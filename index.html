@@ -160,7 +160,7 @@ h1{font-size:19px;margin:0;letter-spacing:.01em}
 .form-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:9px}
 .form-grid .wide{grid-column:1/-1}
 @media (max-width:720px){.form-grid{grid-template-columns:1fr 1fr}}
-input[type=text],input[type=number],input[type=search],select,textarea{
+input[type=text],input[type=password],input[type=number],input[type=search],select,textarea{
   font:inherit;font-size:13.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);
   border-radius:13px;padding:11px 13px;width:100%;outline:none;transition:.16s;appearance:none}
 select{background-image:none}
@@ -301,6 +301,17 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 .ocrbar__track i{display:block;height:100%;width:2%;border-radius:999px;
   background:linear-gradient(90deg,var(--lunch),var(--lunch2));transition:width .3s}
 .ocrbar__card .btn{margin-top:14px}
+
+/* ---------- 云同步 ---------- */
+.sync-state{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--muted)}
+.sync-state i{width:8px;height:8px;border-radius:50%;background:var(--line);display:inline-block;flex:none}
+.sync-state.is-ok i{background:var(--ok)}
+.sync-state.is-ok{color:var(--ok)}
+.sync-state.is-err i{background:var(--danger)}
+.sync-state.is-err{color:var(--danger)}
+.sync-state.is-syncing i{background:var(--warn);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+#syncCode,#syncSql{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
 
 /* ---------- 杂项 ---------- */
 .toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,18px);background:#241a12;color:#fff;
@@ -481,6 +492,40 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         </div>
       </div>
 
+      <div class="panel" id="syncPanel">
+        <div class="panel__hd">
+          <h2>云同步</h2>
+          <span class="sync-state" id="syncState"><i></i><b>未启用</b></span>
+        </div>
+        <p class="hint" style="margin:0 0 10px">
+          填 Supabase 的项目地址和 anon key，两台设备各填一次，之后自动同步。设置步骤见「云同步设置.md」。
+        </p>
+        <div class="form-grid" style="grid-template-columns:1fr">
+          <input type="text" id="syncUrl" placeholder="项目地址，例如 https://abcd.supabase.co" autocomplete="off" spellcheck="false">
+          <input type="password" id="syncKey" placeholder="anon key 或 publishable key（一长串）" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn btn--primary btn--sm" id="syncEnable" type="button">启用同步</button>
+          <button class="btn btn--sm" id="syncNow" type="button">立即同步</button>
+          <button class="btn btn--sm btn--danger" id="syncOff" type="button">断开</button>
+        </div>
+        <p class="hint" id="syncDetail" style="margin:10px 0 0">—</p>
+
+        <details class="bulk">
+          <summary>在另一台设备上配置 / 建表 SQL</summary>
+          <p class="hint">点「复制配置码」，发到手机上，在手机的设置页粘进下面输入框，再点「应用配置码」。</p>
+          <textarea id="syncCode" placeholder="EATSYNC1:..." spellcheck="false" style="min-height:64px"></textarea>
+          <div class="btn-row" style="margin-top:8px">
+            <button class="btn btn--sm" id="syncCopy" type="button">复制配置码</button>
+            <button class="btn btn--sm btn--primary" id="syncApply" type="button">应用配置码</button>
+          </div>
+
+          <p class="hint" style="margin-top:14px">第一次使用前，要先在 Supabase 的 SQL Editor 里执行这段建表语句：</p>
+          <textarea id="syncSql" readonly spellcheck="false" style="min-height:150px"></textarea>
+          <button class="btn btn--sm" id="syncCopySql" type="button" style="margin-top:8px">复制 SQL</button>
+        </details>
+      </div>
+
       <div class="panel">
         <div class="panel__hd"><h2>数据</h2></div>
         <div class="btn-row">
@@ -491,6 +536,20 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         </div>
         <input type="file" id="importFile" accept=".json,application/json" hidden>
         <p class="hint" id="statLine" style="margin-top:12px">—</p>
+
+        <details class="bulk">
+          <summary>用同步码搬数据（不用注册）</summary>
+          <p class="hint">
+            在电脑上点「生成同步码」，把这段文字发到手机（微信文件传输助手就行），
+            手机上点「应用同步码」粘进去，两边的店铺和记录就一样了。
+          </p>
+          <textarea id="dataCode" placeholder="EATDATA2:..." spellcheck="false" style="min-height:86px"></textarea>
+          <div class="btn-row" style="margin-top:8px">
+            <button class="btn btn--sm btn--primary" id="genCode" type="button">生成同步码</button>
+            <button class="btn btn--sm" id="applyCode" type="button">应用同步码</button>
+          </div>
+          <p class="hint" id="codeHint" style="margin:8px 0 0">—</p>
+        </details>
       </div>
     </section>
   </main>
@@ -672,6 +731,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   var state = null;
   var storageOK = true;
   var libQuery = '';
+  var hadLocalData = false;
 
   function defaultSettings() {
     return {
@@ -820,6 +880,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     } catch (e) {
       storageOK = false;
     }
+    hadLocalData = !!raw;
     if (!raw) return seedState();
     try {
       return normalize(JSON.parse(raw));
@@ -828,7 +889,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     }
   }
 
-  function save() {
+  function persist() {
     if (!storageOK) return;
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(state));
@@ -836,6 +897,11 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       storageOK = false;
       $('#banner').classList.add('is-on');
     }
+  }
+
+  function save() {
+    persist();
+    schedulePush();
   }
 
   /* ============ 抽选逻辑 ============ */
@@ -1931,6 +1997,229 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     });
   }
 
+  /* ============ 云同步 ============ */
+  var SYNC_LS = 'eat-what-sync-v1';
+  var SYNC_ROW = 'main';
+  var SYNC_SQL = [
+    'create table if not exists app_state (',
+    '  id text primary key,',
+    '  data jsonb not null,',
+    '  updated_at timestamptz not null default now()',
+    ');',
+    'alter table app_state enable row level security;',
+    'drop policy if exists "anon read" on app_state;',
+    'drop policy if exists "anon write" on app_state;',
+    'drop policy if exists "anon update" on app_state;',
+    'create policy "anon read"   on app_state for select to anon using (true);',
+    'create policy "anon write"  on app_state for insert to anon with check (true);',
+    'create policy "anon update" on app_state for update to anon using (true);'
+  ].join('\n');
+
+  var syncCfg = { url: '', key: '', enabled: false, lastPushAt: 0, lastSyncAt: 0 };
+  var pushTimer = null;
+  var lastPullTry = 0;
+
+  function loadSync() {
+    try {
+      var raw = localStorage.getItem(SYNC_LS);
+      if (!raw) return;
+      var d = JSON.parse(raw) || {};
+      syncCfg.url = String(d.url || '');
+      syncCfg.key = String(d.key || '');
+      syncCfg.enabled = !!d.enabled;
+      syncCfg.lastPushAt = Number(d.lastPushAt) || 0;
+      syncCfg.lastSyncAt = Number(d.lastSyncAt) || 0;
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function persistSync() {
+    try { localStorage.setItem(SYNC_LS, JSON.stringify(syncCfg)); } catch (e) { /* 忽略 */ }
+  }
+
+  function setSyncState(kind, text) {
+    var el = $('#syncState');
+    if (!el) return;
+    el.className = 'sync-state' + (kind ? ' is-' + kind : '');
+    var b = el.querySelector('b');
+    if (b) b.textContent = text;
+  }
+
+  function fmtAgo(ts) {
+    if (!ts) return '';
+    var s = Math.round((Date.now() - ts) / 1000);
+    if (s < 60) return '刚刚';
+    if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
+    if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+    return Math.floor(s / 86400) + ' 天前';
+  }
+
+  function renderSyncUI() {
+    if (!$('#syncUrl')) return;
+    $('#syncUrl').value = syncCfg.url;
+    $('#syncKey').value = syncCfg.key;
+    if (!syncCfg.enabled) setSyncState('', '未启用');
+    else if (syncCfg.lastSyncAt) setSyncState('ok', '已同步 · ' + fmtAgo(syncCfg.lastSyncAt));
+    else setSyncState('', '已启用');
+    if (syncCfg.lastSyncAt && syncCfg.enabled) {
+      $('#syncDetail').textContent = '上次同步：' + new Date(syncCfg.lastSyncAt).toLocaleString() + '（' + fmtAgo(syncCfg.lastSyncAt) + '）';
+    }
+  }
+
+  function syncEndpoint(suffix) {
+    var base = String(syncCfg.url || '').replace(/\/+$/, '');
+    return base + '/rest/v1/app_state' + (suffix || '');
+  }
+
+  function syncHeaders(extra) {
+    var h = {
+      'apikey': syncCfg.key,
+      'Authorization': 'Bearer ' + syncCfg.key,
+      'Content-Type': 'application/json'
+    };
+    if (extra) Object.keys(extra).forEach(function (k) { h[k] = extra[k]; });
+    return h;
+  }
+
+  async function syncError(res) {
+    var text = '';
+    try { text = await res.text(); } catch (e) { /* 忽略 */ }
+    var msg = text;
+    try { var j = JSON.parse(text); msg = j.message || j.hint || text; } catch (e) { /* 忽略 */ }
+    return new Error('HTTP ' + res.status + (msg ? '：' + String(msg).slice(0, 140) : ''));
+  }
+
+  function renderAll() {
+    renderPick();
+    renderLib();
+    renderSettings();
+    renderQuick();
+  }
+
+  async function pushRemote() {
+    if (!syncCfg.enabled || !syncCfg.url || !syncCfg.key) return false;
+    setSyncState('syncing', '同步中…');
+    try {
+      var nowIso = new Date().toISOString();
+      var res = await fetch(syncEndpoint('?on_conflict=id'), {
+        method: 'POST',
+        headers: syncHeaders({ 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
+        body: JSON.stringify({ id: SYNC_ROW, data: state, updated_at: nowIso })
+      });
+      if (!res.ok) throw await syncError(res);
+      syncCfg.lastPushAt = Date.parse(nowIso);
+      syncCfg.lastSyncAt = Date.now();
+      persistSync();
+      setSyncState('ok', '已同步 · 刚刚');
+      $('#syncDetail').textContent = '上次同步：' + new Date().toLocaleString();
+      return true;
+    } catch (e) {
+      setSyncState('err', '出错');
+      $('#syncDetail').textContent = e.message;
+      return false;
+    }
+  }
+
+  async function pullRemote() {
+    if (!syncCfg.enabled || !syncCfg.url || !syncCfg.key) return false;
+    setSyncState('syncing', '同步中…');
+    try {
+      var res = await fetch(syncEndpoint('?id=eq.' + SYNC_ROW + '&select=id,data,updated_at'), {
+        headers: syncHeaders()
+      });
+      if (!res.ok) throw await syncError(res);
+      var rows = await res.json();
+      if (!Array.isArray(rows) || !rows.length) {
+        // 远端还没有数据 → 把本地推上去
+        return await pushRemote();
+      }
+      var remoteAt = Date.parse(rows[0].updated_at) || 0;
+      if (remoteAt <= syncCfg.lastPushAt) {
+        syncCfg.lastSyncAt = Date.now();
+        persistSync();
+        setSyncState('ok', '已同步 · 刚刚');
+        $('#syncDetail').textContent = '上次同步：' + new Date().toLocaleString() + '（远端没有更新）';
+        return true;
+      }
+      state = normalize(rows[0].data);
+      persist();
+      syncCfg.lastPushAt = remoteAt;
+      syncCfg.lastSyncAt = Date.now();
+      persistSync();
+      renderAll();
+      setSyncState('ok', '已拉取远端');
+      $('#syncDetail').textContent = '已用远端版本覆盖本地 · ' + new Date().toLocaleString();
+      return true;
+    } catch (e) {
+      setSyncState('err', '出错');
+      $('#syncDetail').textContent = e.message;
+      return false;
+    }
+  }
+
+  function schedulePush() {
+    if (!syncCfg.enabled) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(function () { pushRemote(); }, 1500);
+  }
+
+  async function enableSync() {
+    var url = $('#syncUrl').value.trim();
+    var key = $('#syncKey').value.trim();
+    if (!url || !key) { toast('先填项目地址和 anon key'); return; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    if (!/^ey[A-Za-z0-9_.-]{20,}$/.test(key) && key.length < 30) {
+      toast('key 看起来不对，应该是一长串（anon public 或 publishable key）');
+      return;
+    }
+    syncCfg.url = url.replace(/\/+$/, '');
+    syncCfg.key = key;
+    syncCfg.enabled = true;
+    persistSync();
+    $('#syncDetail').textContent = '正在连接…';
+    var ok = await pullRemote();
+    if (!ok) {
+      syncCfg.enabled = false;
+      persistSync();
+      setSyncState('err', '连接失败');
+      toast('连接失败，看看下面的报错');
+      return;
+    }
+    save();
+    renderSyncUI();
+    toast('同步已开启');
+  }
+
+  function disableSync() {
+    syncCfg.enabled = false;
+    persistSync();
+    clearTimeout(pushTimer);
+    setSyncState('', '未启用');
+    $('#syncDetail').textContent = '已断开，数据仍保存在本机';
+    toast('已断开同步');
+  }
+
+  function syncCodeMake() {
+    var payload = JSON.stringify({ u: syncCfg.url, k: syncCfg.key });
+    return 'EATSYNC1:' + btoa(unescape(encodeURIComponent(payload)));
+  }
+
+  function syncCodeApply(text) {
+    var s = String(text || '').trim();
+    if (s.indexOf('EATSYNC1:') === 0) s = s.slice(9);
+    if (!s) { toast('先把配置码粘进来'); return; }
+    var obj;
+    try {
+      obj = JSON.parse(decodeURIComponent(escape(atob(s))));
+    } catch (e) {
+      toast('配置码不完整，检查一下有没有复制全');
+      return;
+    }
+    if (!obj || !obj.u || !obj.k) { toast('配置码里没有项目地址或 key'); return; }
+    $('#syncUrl').value = obj.u;
+    $('#syncKey').value = obj.k;
+    toast('已填入，点「启用同步」生效');
+  }
+
   /* ============ 主题 ============ */
   function applyTheme() {
     document.documentElement.setAttribute('data-theme', state.settings.theme);
@@ -1957,6 +2246,65 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   }
 
   /* ============ 数据管理 ============ */
+  function b64FromBytes(u8) {
+    var s = '', CH = 0x8000;
+    for (var i = 0; i < u8.length; i += CH) {
+      s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+    }
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function bytesFromB64(str) {
+    var s = String(str || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s);
+    var u8 = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  }
+
+  async function gzipBytes(bytes) {
+    if (typeof CompressionStream === 'undefined') return null;
+    var stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  async function gunzipBytes(bytes) {
+    if (typeof DecompressionStream === 'undefined') throw new Error('这台设备的浏览器不支持解压');
+    var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  async function makeDataCode() {
+    var payload = { v: 1, at: Date.now(), state: state };
+    var raw = new TextEncoder().encode(JSON.stringify(payload));
+    var packed = await gzipBytes(raw);
+    return packed ? ('EATDATA2:' + b64FromBytes(packed)) : ('EATDATA1:' + b64FromBytes(raw));
+  }
+
+  async function applyDataCode() {
+    var s = ($('#dataCode').value || '').trim();
+    if (!s) { toast('先把同步码粘进来'); return; }
+    var m = s.match(/^EATDATA([12]):([\s\S]+)$/);
+    if (!m) { toast('这段不是同步码（应该以 EATDATA2: 开头）'); return; }
+    try {
+      var bytes = bytesFromB64(m[2]);
+      var raw = m[1] === '2' ? await gunzipBytes(bytes) : bytes;
+      var json = JSON.parse(new TextDecoder().decode(raw));
+      var src = (json && json.state) ? json.state : json;
+      state = normalize(src);
+      persist();
+      renderAll();
+      $('#codeHint').textContent = '已导入 ' + state.shops.length + ' 家店、' +
+        Object.keys(state.records).length + ' 天记录 · ' + new Date().toLocaleString();
+      toast('已同步到这台设备');
+      if (syncCfg.enabled) schedulePush();
+    } catch (e) {
+      $('#codeHint').textContent = '解析失败：' + (e && e.message ? e.message : e);
+      toast('同步码不完整，检查有没有复制全');
+    }
+  }
+
   function onExport() {
     var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     var a = document.createElement('a');
@@ -2079,6 +2427,45 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       save(); applyTheme(); renderSettings();
     });
     $('#exportBtn').addEventListener('click', onExport);
+
+    /* 免注册同步码 */
+    $('#genCode').addEventListener('click', function () {
+      makeDataCode().then(function (code) {
+        $('#dataCode').value = code;
+        var kb = (code.length / 1024).toFixed(1);
+        $('#codeHint').textContent = '已生成，约 ' + kb + 'KB。复制这段发到手机上，在手机点「应用同步码」。';
+        if (copyText(code)) toast('同步码已复制');
+      }).catch(function (e) {
+        $('#codeHint').textContent = '生成失败：' + e.message;
+      });
+    });
+    $('#applyCode').addEventListener('click', applyDataCode);
+
+    /* 云同步 */
+    $('#syncSql').value = SYNC_SQL;
+    $('#syncEnable').addEventListener('click', enableSync);
+    $('#syncNow').addEventListener('click', function () {
+      if (!syncCfg.enabled) { toast('先点「启用同步」'); return; }
+      pullRemote().then(function (ok) { if (ok) toast('已是最新'); });
+    });
+    $('#syncOff').addEventListener('click', disableSync);
+    $('#syncCopy').addEventListener('click', function () {
+      var code = syncCodeMake();
+      $('#syncCode').value = code;
+      if (copyText(code)) toast('配置码已复制，发到另一台设备');
+      else toast('已生成，手动选中下面的配置码复制');
+    });
+    $('#syncApply').addEventListener('click', function () { syncCodeApply($('#syncCode').value); });
+    $('#syncCopySql').addEventListener('click', function () {
+      if (copyText(SYNC_SQL)) toast('建表 SQL 已复制');
+      else toast('复制失败，请手动选中复制');
+    });
+    ['#syncUrl', '#syncKey'].forEach(function (sel) {
+      $(sel).addEventListener('change', function () {
+        if (syncCfg.enabled) toast('配置改了，记得重新点「启用同步」');
+      });
+    });
+
     $('#importBtn').addEventListener('click', function () { $('#importFile').click(); });
     $('#importFile').addEventListener('change', function (e) {
       var f = e.target.files && e.target.files[0];
@@ -2105,6 +2492,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
   function boot() {
     state = load();
+    loadSync();
     if (!storageOK) $('#banner').classList.add('is-on');
     applyTheme();
     ensureToday();
@@ -2113,6 +2501,15 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     renderLib();
     renderSettings();
     renderQuick();
+    renderSyncUI();
+
+    // 开了云同步就先拉一次，拿远端最新的
+    if (syncCfg.enabled) {
+      // 本机还没有业务数据（第一次用 / 数据被清过）→ 强制拉，别用缓存里的时间戳挡住
+      if (!hadLocalData) syncCfg.lastPushAt = 0;
+      lastPullTry = Date.now();
+      setTimeout(function () { pullRemote(); }, 300);
+    }
 
     var hash = (location.hash || '').replace('#', '');
     if (hash === 'lib' || hash === 'set') switchView(hash);
@@ -2131,6 +2528,11 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       if (document.visibilityState === 'visible') {
         var k = todayKey();
         if (k !== currentDay) { currentDay = k; ensureToday(); renderPick(); }
+        // 回到前台拉一次远端（30 秒内不重复拉）
+        if (syncCfg.enabled && Date.now() - lastPullTry > 30000) {
+          lastPullTry = Date.now();
+          pullRemote();
+        }
       }
     });
 
