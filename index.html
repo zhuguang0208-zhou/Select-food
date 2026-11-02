@@ -78,6 +78,18 @@ h1{font-size:19px;margin:0;letter-spacing:.01em}
 .view.is-on{display:block}
 @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
+/* ---------- 选择范围栏 ---------- */
+.quick{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:12px 14px;
+  margin-bottom:14px;box-shadow:var(--shadow-sm);display:grid;gap:10px}
+.quick__row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.quick__label{font-size:12px;font-weight:800;color:var(--muted);min-width:42px}
+.quick .seg button{padding:8px 15px}
+.quick .chip{padding:7px 14px;font-size:12.5px}
+.chip.is-off{opacity:.42;text-decoration:line-through}
+.quick .link{margin-left:auto}
+.tag--school{background:rgba(18,160,106,.13);color:var(--ok)}
+.tag--zone{font-weight:800}
+
 /* ---------- 结果卡片 ---------- */
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media (max-width:720px){.grid{grid-template-columns:1fr}}
@@ -330,6 +342,21 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   <main>
     <!-- ========== 今天吃啥 ========== -->
     <section class="view is-on" id="view-pick">
+      <div class="quick">
+        <div class="quick__row">
+          <span class="quick__label">从哪选</span>
+          <div class="seg" id="zoneSeg">
+            <button type="button" data-zone="all">全部</button>
+            <button type="button" data-zone="school">校内</button>
+            <button type="button" data-zone="outside">校外</button>
+          </div>
+        </div>
+        <div class="quick__row">
+          <span class="quick__label">不吃</span>
+          <div class="chips" id="catToggles"></div>
+          <button class="link" type="button" id="resetCats">全部恢复</button>
+        </div>
+      </div>
       <div class="grid" id="cards"></div>
       <div class="panel" id="historyPanel" hidden>
         <div class="panel__hd"><h2>最近吃了什么</h2></div>
@@ -351,6 +378,10 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
             <option value="both">美团 + 闪购</option>
             <option value="meituan">只在美团</option>
             <option value="taobao">只在淘宝闪购</option>
+          </select>
+          <select id="fZone">
+            <option value="outside">校外</option>
+            <option value="school">校内</option>
           </select>
           <input type="text" id="fCat" list="catList" placeholder="品类，例如 快餐" maxlength="12">
           <input type="number" id="fPrice" placeholder="人均 ¥" min="0" max="9999" step="1">
@@ -433,10 +464,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
       <div class="panel">
         <div class="panel__hd">
-          <h2>品类范围</h2>
-          <span class="hint">午饭、晚饭分别勾选，不勾就是全都要</span>
+          <h2>区域与类型</h2>
+          <span class="hint">已移到首页的「选择范围」栏，随手就能关</span>
         </div>
-        <div id="rangeEditor"></div>
       </div>
 
       <div class="panel">
@@ -480,7 +510,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         <thead>
           <tr>
             <th style="width:34px"><input type="checkbox" id="chkAll" checked></th>
-            <th>店名</th><th style="width:110px">品类</th><th style="width:78px">人均</th>
+            <th>店名</th><th style="width:76px">区域</th><th style="width:110px">品类</th><th style="width:78px">人均</th>
             <th style="width:86px">距离(米)</th><th style="width:104px">平台</th><th style="width:62px">状态</th>
           </tr>
         </thead>
@@ -527,32 +557,37 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     taobao:  { short: '闪购', go: '去淘宝闪购' },
     both:    { short: '美团+闪购', go: '' }
   };
-  var DEFAULT_CATS = ['快餐', '米饭', '面食', '火锅烧烤', '轻食', '饮品甜点', '其他'];
+  var DEFAULT_CATS = ['快餐', '米饭', '面食', '火锅烧烤', '轻食', '其他'];
+  var ZONE_LABEL = { school: '校内', outside: '校外' };
   var WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
   var SEED_SHOPS = [
-    { name: '老乡鸡',        platform: 'both',    cat: '快餐',     price: 28, distance: 420,  note: '11:30 前下单快' },
-    { name: '兰州牛肉面',    platform: 'both',    cat: '面食',     price: 22, distance: 650,  note: '加蛋加牛肉' },
-    { name: '黄焖鸡米饭',    platform: 'both',    cat: '米饭',     price: 24, distance: 380,  note: '' },
-    { name: '麦当劳',        platform: 'both',    cat: '快餐',     price: 32, distance: 500,  note: '1+1 划算' },
-    { name: '肯德基',        platform: 'both',    cat: '快餐',     price: 35, distance: 700,  note: '' },
-    { name: '沙县小吃',      platform: 'both',    cat: '快餐',     price: 18, distance: 260,  note: '拌面加馄饨' },
-    { name: '杨国福麻辣烫',  platform: 'both',    cat: '火锅烧烤', price: 30, distance: 800,  note: '' },
-    { name: '螺蛳粉',        platform: 'taobao',  cat: '面食',     price: 20, distance: 900,  note: '加腐竹' },
-    { name: '日式咖喱饭',    platform: 'meituan', cat: '米饭',     price: 30, distance: 950,  note: '' },
-    { name: '轻食沙拉',      platform: 'meituan', cat: '轻食',     price: 35, distance: 1000, note: '想清淡点就吃它' },
-    { name: '回转寿司',      platform: 'both',    cat: '其他',     price: 55, distance: 1200, note: '' },
-    { name: '重庆小面',      platform: 'both',    cat: '面食',     price: 18, distance: 550,  note: '微辣' },
-    { name: '潮汕牛肉火锅',  platform: 'meituan', cat: '火锅烧烤', price: 95, distance: 1500, note: '人多才划算', meals: ['dinner'] },
-    { name: '烧烤撸串',      platform: 'taobao',  cat: '火锅烧烤', price: 70, distance: 1100, note: '', meals: ['dinner'] },
-    { name: '隆江猪脚饭',    platform: 'both',    cat: '米饭',     price: 26, distance: 450,  note: '' },
-    { name: '便利店便当',    platform: 'both',    cat: '快餐',     price: 16, distance: 150,  note: '赶时间专用', meals: ['lunch'] },
-    { name: '瑞幸咖啡',      platform: 'meituan', cat: '饮品甜点', price: 15, distance: 200,  note: '配个贝果' },
-    { name: '蜜雪冰城',      platform: 'both',    cat: '饮品甜点', price: 10, distance: 180,  note: '' },
-    { name: '新疆炒米粉',    platform: 'taobao',  cat: '面食',     price: 28, distance: 900,  note: '中辣' },
-    { name: '汉堡王',        platform: 'meituan', cat: '快餐',     price: 36, distance: 750,  note: '' },
-    { name: '萨莉亚',        platform: 'meituan', cat: '其他',     price: 45, distance: 1300, note: '' },
-    { name: '关东煮',        platform: 'both',    cat: '快餐',     price: 18, distance: 160,  note: '', meals: ['lunch'] }
+    /* ---- 校内 ---- */
+    { name: '一食堂盖浇饭',     zone: 'school',  platform: 'both',    cat: '米饭',     price: 15, distance: 200,  note: '排队快' },
+    { name: '二食堂麻辣香锅',   zone: 'school',  platform: 'both',    cat: '火锅烧烤', price: 18, distance: 250,  note: '中午人多' },
+    { name: '三食堂牛肉面',     zone: 'school',  platform: 'both',    cat: '面食',     price: 12, distance: 300,  note: '分量大' },
+    { name: '四食堂自选快餐',   zone: 'school',  platform: 'both',    cat: '快餐',     price: 14, distance: 220,  note: '' },
+    { name: '学校超市关东煮',   zone: 'school',  platform: 'both',    cat: '快餐',     price: 12, distance: 150,  note: '赶时间专用', meals: ['lunch'] },
+    { name: '宿舍楼下便利店',   zone: 'school',  platform: 'both',    cat: '快餐',     price: 16, distance: 180,  note: '', meals: ['lunch'] },
+    /* ---- 校外 ---- */
+    { name: '老乡鸡',           zone: 'outside', platform: 'both',    cat: '快餐',     price: 28, distance: 420,  note: '11:30 前下单快' },
+    { name: '兰州牛肉面',       zone: 'outside', platform: 'both',    cat: '面食',     price: 22, distance: 650,  note: '加蛋加牛肉' },
+    { name: '黄焖鸡米饭',       zone: 'outside', platform: 'both',    cat: '米饭',     price: 24, distance: 380,  note: '' },
+    { name: '麦当劳',           zone: 'outside', platform: 'both',    cat: '快餐',     price: 32, distance: 500,  note: '1+1 划算' },
+    { name: '肯德基',           zone: 'outside', platform: 'both',    cat: '快餐',     price: 35, distance: 700,  note: '' },
+    { name: '沙县小吃',         zone: 'outside', platform: 'both',    cat: '快餐',     price: 18, distance: 260,  note: '拌面加馄饨' },
+    { name: '杨国福麻辣烫',     zone: 'outside', platform: 'both',    cat: '火锅烧烤', price: 30, distance: 800,  note: '' },
+    { name: '螺蛳粉',           zone: 'outside', platform: 'taobao',  cat: '面食',     price: 20, distance: 900,  note: '加腐竹' },
+    { name: '日式咖喱饭',       zone: 'outside', platform: 'meituan', cat: '米饭',     price: 30, distance: 950,  note: '' },
+    { name: '轻食沙拉',         zone: 'outside', platform: 'meituan', cat: '轻食',     price: 35, distance: 1000, note: '想清淡点就吃它' },
+    { name: '回转寿司',         zone: 'outside', platform: 'both',    cat: '其他',     price: 55, distance: 1200, note: '' },
+    { name: '重庆小面',         zone: 'outside', platform: 'both',    cat: '面食',     price: 18, distance: 550,  note: '微辣' },
+    { name: '潮汕牛肉火锅',     zone: 'outside', platform: 'meituan', cat: '火锅烧烤', price: 95, distance: 1500, note: '人多才划算', meals: ['dinner'] },
+    { name: '烧烤撸串',         zone: 'outside', platform: 'taobao',  cat: '火锅烧烤', price: 70, distance: 1100, note: '', meals: ['dinner'] },
+    { name: '隆江猪脚饭',       zone: 'outside', platform: 'both',    cat: '米饭',     price: 26, distance: 450,  note: '' },
+    { name: '新疆炒米粉',       zone: 'outside', platform: 'taobao',  cat: '面食',     price: 28, distance: 900,  note: '中辣' },
+    { name: '汉堡王',           zone: 'outside', platform: 'meituan', cat: '快餐',     price: 36, distance: 750,  note: '' },
+    { name: '萨莉亚',           zone: 'outside', platform: 'meituan', cat: '其他',     price: 45, distance: 1300, note: '' }
   ];
 
   /* ============ 工具 ============ */
@@ -644,9 +679,10 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       allowSame: false,
       weighted: true,
       platform: 'both',
+      zone: 'all',
+      offCats: [],
       maxDistance: 0,
       maxPrice: { lunch: 0, dinner: 0 },
-      range: { lunch: [], dinner: [] },
       theme: 'auto'
     };
   }
@@ -655,8 +691,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     return {
       id: s.id || uid(),
       name: String(s.name).slice(0, 40),
+      zone: s.zone === 'school' ? 'school' : 'outside',
       platform: (s.platform === 'meituan' || s.platform === 'taobao') ? s.platform : 'both',
-      cat: (s.cat && String(s.cat).slice(0, 12)) || '其他',
+      cat: (s.cat && String(s.cat).slice(0, 12) && s.cat !== '饮品甜点') ? String(s.cat).slice(0, 12) : '其他',
       price: clampInt(s.price, 0, 9999, 0),
       distance: clampInt(s.distance, 0, 99999, 0),
       note: s.note ? String(s.note).slice(0, 80) : '',
@@ -701,20 +738,35 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     var st = (raw.settings && typeof raw.settings === 'object') ? raw.settings : {};
     var d = defaultSettings();
     var mp = (st.maxPrice && typeof st.maxPrice === 'object') ? st.maxPrice : {};
+
+    // 旧版本的"只吃这几类"（range）换算成"不吃这几类"（黑名单）
+    var offCats = Array.isArray(st.offCats)
+      ? st.offCats.filter(function (x) { return typeof x === 'string'; })
+      : [];
     var rg = (st.range && typeof st.range === 'object') ? st.range : {};
+    var legacyRange = [].concat(
+      Array.isArray(rg.lunch) ? rg.lunch : [],
+      Array.isArray(rg.dinner) ? rg.dinner : []
+    );
+    if (!offCats.length && legacyRange.length) {
+      var allCats = {};
+      base.shops.forEach(function (s) { allCats[s.cat] = true; });
+      Object.keys(allCats).forEach(function (c) {
+        if (legacyRange.indexOf(c) < 0) offCats.push(c);
+      });
+    }
+
     base.settings = {
       cooldown: clampInt(st.cooldown, 0, 14, d.cooldown),
       allowSame: !!st.allowSame,
       weighted: st.weighted !== false,
       platform: (st.platform === 'meituan' || st.platform === 'taobao') ? st.platform : 'both',
+      zone: (st.zone === 'school' || st.zone === 'outside') ? st.zone : 'all',
+      offCats: offCats,
       maxDistance: clampInt(st.maxDistance, 0, 5000, 0),
       maxPrice: {
         lunch: clampInt(mp.lunch, 0, 999, 0),
         dinner: clampInt(mp.dinner, 0, 999, 0)
-      },
-      range: {
-        lunch: Array.isArray(rg.lunch) ? rg.lunch.filter(function (x) { return typeof x === 'string'; }) : [],
-        dinner: Array.isArray(rg.dinner) ? rg.dinner.filter(function (x) { return typeof x === 'string'; }) : []
       },
       theme: (st.theme === 'light' || st.theme === 'dark') ? st.theme : 'auto'
     };
@@ -730,8 +782,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
           day[meal] = {
             id: String(r.id),
             name: String(r.name).slice(0, 40),
+            zone: r.zone === 'school' ? 'school' : 'outside',
             platform: (r.platform === 'meituan' || r.platform === 'taobao') ? r.platform : 'both',
-            cat: r.cat ? String(r.cat).slice(0, 12) : '其他',
+            cat: (r.cat && r.cat !== '饮品甜点') ? String(r.cat).slice(0, 12) : '其他',
             price: clampInt(r.price, 0, 9999, 0),
             distance: clampInt(r.distance, 0, 99999, 0),
             reroll: !!r.reroll,
@@ -798,9 +851,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     if (st.platform !== 'both') {
       pool = pool.filter(function (s) { return s.platform === st.platform || s.platform === 'both'; });
     }
-    var cats = st.range[meal] || [];
-    if (cats.length) {
-      pool = pool.filter(function (s) { return cats.indexOf(s.cat) >= 0; });
+    if (st.zone !== 'all') {
+      pool = pool.filter(function (s) { return s.zone === st.zone; });
+    }
+    var off = st.offCats || [];
+    if (off.length) {
+      pool = pool.filter(function (s) { return off.indexOf(s.cat) < 0; });
     }
     var md = st.maxDistance;
     if (md > 0) {
@@ -862,7 +918,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
   function snap(s) {
     return {
-      id: s.id, name: s.name, platform: s.platform, cat: s.cat,
+      id: s.id, name: s.name, zone: s.zone, platform: s.platform, cat: s.cat,
       price: s.price, distance: s.distance, reroll: false, at: Date.now()
     };
   }
@@ -886,10 +942,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   function scopeSummary(meal) {
     var st = state.settings;
     var bits = [];
+    if (st.zone === 'school') bits.push('只在校内');
+    else if (st.zone === 'outside') bits.push('只在校外');
     if (st.platform === 'meituan') bits.push('只美团');
     else if (st.platform === 'taobao') bits.push('只闪购');
-    var cats = st.range[meal] || [];
-    if (cats.length) bits.push(cats.join('/'));
+    var off = st.offCats || [];
+    if (off.length) bits.push('不吃' + off.join('/'));
     if (st.maxDistance > 0) bits.push(fmtDist(st.maxDistance) + '内');
     if (st.maxPrice[meal] > 0) bits.push('¥' + st.maxPrice[meal] + '内');
     return bits.length ? bits.join(' · ') : '全部';
@@ -933,6 +991,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       body =
         '<div class="dish">' + esc(rec.name) + '</div>' +
         '<div class="meta">' +
+          (rec.zone ? '<span class="tag tag--zone' + (rec.zone === 'school' ? ' tag--school' : '') + '">' + (ZONE_LABEL[rec.zone] || '校外') + '</span>' : '') +
           '<span class="tag">' + esc(rec.cat || '其他') + '</span>' +
           (rec.price ? '<span class="tag">¥' + rec.price + '</span>' : '') +
           (rec.distance ? '<span class="tag">' + fmtDist(rec.distance) + '</span>' : '') +
@@ -1091,9 +1150,11 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     var st = state.settings;
     st.maxDistance = 0;
     st.maxPrice[meal] = 0;
-    st.range[meal] = [];
+    st.offCats = [];
     st.platform = 'both';
+    st.zone = 'all';
     save();
+    renderQuick();
     renderPick();
     renderSettings();
     toast('已放宽到全部店铺');
@@ -1138,12 +1199,6 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     return out;
   }
 
-  function categoryOptions(meal) {
-    var have = {};
-    basePool(meal).forEach(function (s) { have[s.cat] = true; });
-    return allCats().filter(function (c) { return have[c]; });
-  }
-
   function renderLib() {
     $('#catList').innerHTML = allCats().map(function (c) {
       return '<option value="' + esc(c) + '"></option>';
@@ -1184,6 +1239,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
           '<div class="shop__name"><span>' + esc(s.name) + '</span>' +
             (s.note ? '<span class="shop__note">' + esc(s.note) + '</span>' : '') + '</div>' +
           '<div class="shop__sub">' +
+            '<span class="tag ' + (s.zone === 'school' ? 'tag--school' : '') + '">' + (ZONE_LABEL[s.zone] || '校外') + '</span>' +
             '<span class="tag ' + (s.platform === 'meituan' ? 'tag--mt' : (s.platform === 'taobao' ? 'tag--tb' : '')) + '">' + platShort(s.platform) + '</span>' +
             (s.price ? '<span class="tag">¥' + s.price + '</span>' : '') +
             (s.distance ? '<span class="tag">' + fmtDist(s.distance) + '</span>' : '') +
@@ -1239,6 +1295,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
     state.shops.push(makeShop({
       name: name,
+      zone: $('#fZone').value,
       platform: $('#fPlatform').value,
       cat: $('#fCat').value.trim() || '其他',
       price: $('#fPrice').value,
@@ -1250,14 +1307,13 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     $('#addForm').reset();
     $('#fLunch').checked = true;
     $('#fDinner').checked = true;
-    renderLib(); renderPick(); renderSettings();
+    renderLib(); renderPick(); renderSettings(); renderQuick();
     toast('已加入「' + name + '」');
   }
 
   /* ============ 智能导入：解析 ============ */
   var CAT_RULES = [
     ['火锅烧烤', /火锅|串串|炸串|烤串|烧烤|麻辣烫|冒菜|香锅|烤肉|串吧|海底捞|呷哺|小龙坎|杨国福|张亮/],
-    ['饮品甜点', /咖啡|奶茶|饮品|果汁|甜点|蛋糕|冰淇淋|雪糕|茶饮|瑞幸|蜜雪|喜茶|霸王茶姬|库迪|星巴克|古茗|茶百道|沪上阿姨|书亦|奈雪|一点点|coco/i],
     ['轻食', /沙拉|轻食|三明治|减脂|牛油果|波奇/],
     ['面食', /面馆|拉面|牛肉面|小面|刀削|烩面|炒面|拌面|米线|米粉|螺蛳粉|粉丝|饺|馄饨|包子|烧麦|锅贴|意面|披萨|凉皮|和府/],
     ['米饭', /米饭|盖饭|盖浇|炒饭|煲仔|粥|卤肉饭|猪脚饭|黄焖鸡|咖喱饭|太二|西贝|老娘舅|真功夫/],
@@ -1325,6 +1381,13 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     return s.slice(0, 40).trim();
   }
 
+  function guessZone(text) {
+    var t = String(text || '');
+    if (/校内|食堂|学校|宿舍|教学楼|校园/.test(t)) return 'school';
+    if (/校外|门口|楼下|外面|商业街|外卖柜/.test(t)) return 'outside';
+    return 'outside';
+  }
+
   function buildRow(o, raw) {
     var name = cleanName(o.name || '');
     if (!name || name.length < 2) return null;
@@ -1336,10 +1399,17 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       ? clampInt(o.distance, 0, 99999, 0) : parseDistance(raw || '');
     var plat = (o.platform === 'meituan' || o.platform === 'taobao' || o.platform === 'both')
       ? o.platform : guessPlatform(raw || '');
+    var z = o.zone;
+    if (z === '校内') z = 'school';
+    if (z === '校外') z = 'outside';
+    var zone = (z === 'school' || z === 'outside') ? z : guessZone((o.name || '') + ' ' + (raw || ''));
+    var cat = (o.cat && String(o.cat).slice(0, 12));
+    if (!cat || cat === '饮品甜点') cat = guessCat(name + ' ' + (raw || ''));
 
     return {
       name: name,
-      cat: (o.cat && String(o.cat).slice(0, 12)) || guessCat(name + ' ' + (raw || '')),
+      zone: zone,
+      cat: cat,
       price: price,
       distance: distance,
       platform: plat,
@@ -1374,6 +1444,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     if (!name || name.length < 2) return null;
     return {
       name: name,
+      zone: guessZone(t),
       cat: guessCat(name + ' ' + t),
       price: parsePrice(t),
       distance: parseDistance(t),
@@ -1407,6 +1478,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       var row = buildRow({
         name: s.name || s.title || s['店名'] || '',
         cat: s.cat || s.category || s['品类'] || '',
+        zone: s.zone || s['区域'] || '',
         price: s.price !== undefined ? s.price : s['人均'],
         distance: s.distance !== undefined ? s.distance : s['距离'],
         platform: s.platform || '',
@@ -1466,6 +1538,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     }).join('');
   }
 
+  function zoneOptions(sel) {
+    return [['school', '校内'], ['outside', '校外']].map(function (z) {
+      return '<option value="' + z[0] + '"' + (z[0] === sel ? ' selected' : '') + '>' + z[1] + '</option>';
+    }).join('');
+  }
+
   function openPreview(rows, ignored) {
     if (!rows || !rows.length) { toast('没有拆出店铺，看看原文格式'); return; }
     var exist = {};
@@ -1491,6 +1569,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       return '<tr data-i="' + i + '" class="' + (r.dup ? 'is-dup ' : '') + (r.include ? '' : 'is-off') + '">' +
         '<td><input type="checkbox" data-f="include"' + (r.include ? ' checked' : '') + '></td>' +
         '<td><input type="text" data-f="name" value="' + esc(r.name) + '" maxlength="40"></td>' +
+        '<td><select data-f="zone">' + zoneOptions(r.zone) + '</select></td>' +
         '<td><input type="text" data-f="cat" list="catList" value="' + esc(r.cat) + '" maxlength="12"></td>' +
         '<td><input type="number" data-f="price" value="' + (r.price || '') + '" min="0" max="999" placeholder="—"></td>' +
         '<td><input type="number" data-f="distance" value="' + (r.distance || '') + '" min="0" max="99999" step="10" placeholder="—"></td>' +
@@ -1533,6 +1612,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       row[f] = t.value;
     } else if (f === 'platform') {
       row.platform = t.value;
+    } else if (f === 'zone') {
+      row.zone = t.value;
     }
   }
 
@@ -1562,12 +1643,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       var hit = map[key];
       if (hit) {
         hit.cat = r.cat; hit.price = r.price; hit.distance = r.distance;
-        hit.platform = r.platform; hit.meals = r.meals;
+        hit.platform = r.platform; hit.meals = r.meals; hit.zone = r.zone;
         updated++;
       } else {
         var shop = makeShop({
           name: r.name, cat: r.cat, price: r.price, distance: r.distance,
-          platform: r.platform, meals: r.meals
+          platform: r.platform, meals: r.meals, zone: r.zone
         });
         state.shops.push(shop);
         map[key] = shop;
@@ -1579,7 +1660,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     closeModal();
     libQuery = '';
     $('#search').value = '';
-    renderLib(); renderPick(); renderSettings();
+    renderLib(); renderPick(); renderSettings(); renderQuick();
     toast('导入完成：新增 ' + added + ' 家' + (updated ? '，更新 ' + updated + ' 家' : ''));
   }
 
@@ -1770,37 +1851,84 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     });
 
     var cats = allCats();
-    $('#rangeEditor').innerHTML = ['lunch', 'dinner'].map(function (meal) {
-      var sel = st.range[meal] || [];
-      var opts = categoryOptions(meal);
-      var chips = opts.length
-        ? opts.map(function (c) {
-            return '<button type="button" class="chip' + (sel.indexOf(c) >= 0 ? ' is-on' : '') +
-              '" data-act="setcat" data-meal="' + meal + '" data-cat="' + esc(c) + '">' + esc(c) + '</button>';
-          }).join('')
-        : '<span class="hint">这个餐次还没有可用分类</span>';
-      return '<div class="rerow"><div class="rerow__hd">' + MEALS[meal].icon + ' ' + MEALS[meal].label +
-        '<span class="hint">' + (sel.length ? '已选 ' + sel.length + ' 类' : '不限') + '</span></div>' +
-        '<div class="chips">' + chips + '</div></div>';
-    }).join('');
 
     var days = Object.keys(state.records).length;
     $('#statLine').textContent = '店铺 ' + state.shops.length + ' 家 · 分类 ' + cats.length +
       ' 类 · 已记录 ' + days + ' 天' + (storageOK ? '' : '（本地存储不可用）');
   }
 
-  function onRangeClick(e) {
-    var t = e.target.closest('[data-act="setcat"]');
-    if (!t) return;
-    var meal = t.dataset.meal;
-    var cat = t.dataset.cat;
-    var arr = state.settings.range[meal] || [];
-    var i = arr.indexOf(cat);
-    if (i >= 0) arr.splice(i, 1); else arr.push(cat);
-    state.settings.range[meal] = arr;
-    save();
-    renderSettings();
-    renderPick();
+  /* ============ 选择范围（区域 / 不吃哪些） ============ */
+  function renderQuick() {
+    var st = state.settings;
+    $$('#zoneSeg button').forEach(function (b) {
+      b.classList.toggle('is-on', b.dataset.zone === st.zone);
+    });
+    var off = st.offCats || [];
+    $('#catToggles').innerHTML = allCats().map(function (c) {
+      var excluded = off.indexOf(c) >= 0;
+      return '<button type="button" class="chip' + (excluded ? ' is-off' : '') +
+        '" data-cat="' + esc(c) + '" title="' + (excluded ? '已关闭，点一下恢复' : '点一下关掉这类') + '">' +
+        esc(c) + '</button>';
+    }).join('');
+    $('#resetCats').hidden = off.length === 0;
+  }
+
+  // 范围变了之后：如果当天已抽中的店不在新范围里，就重抽那一餐
+  function revalidateToday() {
+    var key = todayKey();
+    var rec = state.records[key];
+    if (!rec) return;
+    var changed = false;
+    ['lunch', 'dinner'].forEach(function (meal) {
+      var r = rec[meal];
+      if (!r) return;
+      var pool = filterPool(meal);
+      var stillOK = pool.some(function (s) { return s.id === r.id; });
+      if (stillOK) return;
+      var excl = [];
+      if (meal === 'dinner' && !state.settings.allowSame && rec.lunch) excl.push(rec.lunch.id);
+      var out = pickOne(meal, key, excl);
+      if (out.item) { rec[meal] = snap(out.item); changed = true; }
+    });
+    if (changed) {
+      save();
+      toast('范围变了，已重新抽');
+    }
+  }
+
+  function bindQuick() {
+    $('#zoneSeg').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-zone]');
+      if (!b || b.dataset.zone === state.settings.zone) return;
+      state.settings.zone = b.dataset.zone;
+      save();
+      renderQuick();
+      revalidateToday();
+      renderPick();
+    });
+
+    $('#catToggles').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-cat]');
+      if (!b) return;
+      var cat = b.dataset.cat;
+      var off = state.settings.offCats || [];
+      var i = off.indexOf(cat);
+      if (i >= 0) off.splice(i, 1); else off.push(cat);
+      state.settings.offCats = off;
+      save();
+      renderQuick();
+      revalidateToday();
+      renderPick();
+    });
+
+    $('#resetCats').addEventListener('click', function () {
+      state.settings.offCats = [];
+      save();
+      renderQuick();
+      revalidateToday();
+      renderPick();
+      toast('全部类型都恢复了');
+    });
   }
 
   /* ============ 主题 ============ */
@@ -1852,7 +1980,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         save();
         applyTheme();
         ensureToday();
-        renderPick(); renderLib(); renderSettings();
+        renderPick(); renderLib(); renderSettings(); renderQuick();
         toast('导入成功，共 ' + state.shops.length + ' 家店');
       } catch (err) {
         toast('导入失败：文件不是有效的备份');
@@ -1907,7 +2035,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && !$('#modal').hidden) closeModal();
     });
-    $('#rangeEditor').addEventListener('click', onRangeClick);
+    bindQuick();
 
     $('#cooldown').addEventListener('input', function (e) {
       state.settings.cooldown = clampInt(e.target.value, 0, 14, 3);
@@ -1960,14 +2088,14 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     $('#demoBtn').addEventListener('click', function () {
       if (!window.confirm('用示例店铺替换现在的店铺池？（记录和设置保留）')) return;
       state.shops = seedState().shops;
-      save(); renderLib(); renderPick(); renderSettings();
+      save(); renderLib(); renderPick(); renderSettings(); renderQuick();
       toast('已恢复示例店铺');
     });
     $('#clearBtn').addEventListener('click', function () {
       if (!window.confirm('清空全部店铺和记录？此操作不能撤销，建议先导出备份。')) return;
       state = seedState();
       state.shops = [];
-      save(); applyTheme(); renderPick(); renderLib(); renderSettings();
+      save(); applyTheme(); renderPick(); renderLib(); renderSettings(); renderQuick();
       toast('已清空');
     });
   }
@@ -1984,6 +2112,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     renderPick();
     renderLib();
     renderSettings();
+    renderQuick();
 
     var hash = (location.hash || '').replace('#', '');
     if (hash === 'lib' || hash === 'set') switchView(hash);
