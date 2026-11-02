@@ -608,7 +608,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   /* ============ 常量 ============ */
   var LS_KEY = 'eat-what-v1';
   var APP_VERSION = 1;
-  var BUILD = 'v6';
+  var BUILD = 'v7';
   var BUILD_DATE = '2026-11-02';
 
   var MEALS = {
@@ -1412,7 +1412,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   function parsePrice(s) {
     var m = s.match(/[¥￥]\s*(\d+(?:\.\d+)?)/) ||
             s.match(/(?:人均|价格|均价|约)\s*[:：]?\s*(\d+(?:\.\d+)?)\s*元?/) ||
-            s.match(/(\d+(?:\.\d+)?)\s*元/);
+            s.match(/(\d+(?:\.\d+)?)\s*元/) ||
+            // OCR 常把 ¥ 吃掉，留下「店名 28 420m」：数字紧跟在距离前面就是价格
+            s.match(/(?:^|\s)(\d{1,3})\s+\d+(?:\.\d+)?\s*(?:m|米|km|公里)\b/i);
     if (!m) return 0;
     var v = Math.round(parseFloat(m[1]));
     return (v > 0 && v <= 999) ? v : 0;
@@ -1440,6 +1442,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     s = s.replace(/(月售|已售|销量)\s*\d+\+?/g, ' ');
     s = s.replace(/(起送|配送费|评分|人均|距离你|距你)\s*[:：]?\s*[\d.]+\s*(元|分|km|m|公里|米)?/g, ' ');
     s = s.replace(/[¥￥]\s*\d+(?:\.\d+)?/g, ' ');
+    // 「店名 28 420m」里那个价格数字（OCR 丢了 ¥），连距离一起清掉
+    s = s.replace(/\d{1,3}\s+(?=\d+(?:\.\d+)?\s*(?:m|米|km|公里)\b)/gi, ' ');
     s = s.replace(/\d+(?:\.\d+)?\s*(?:元|米|公里|km|m(?![a-z]))/gi, ' ');
     s = s.replace(/[（(][^）)]{0,14}[）)]/g, ' ');
     s = s.replace(/[·•|｜]/g, ' ');
@@ -1456,6 +1460,58 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     if (/校内|食堂|学校|宿舍|教学楼|校园/.test(t)) return 'school';
     if (/校外|门口|楼下|外面|商业街|外卖柜/.test(t)) return 'outside';
     return 'outside';
+  }
+
+  /* ---- 截图识别的噪声过滤：App 界面文字不该被当成店名 ---- */
+  // 出现在任何店名里都不合理的词
+  var NAME_HARD_NOISE = /好评|评分|评价|月售|已售|销量|起送|配送|满减|优惠|红包|券后|限时|折扣|元起|距离你|距你|加入购物车|去结算|立即购买|查看全部|换一批|综合排序|排序|筛选|搜索/;
+  // 只有整行就是这些词、或一行里出现两个以上，才判定为界面文字
+  var NAME_SOFT_WORDS = ['附近', '全部', '首页', '我的', '订单', '消息', '推荐', '热销', '新品',
+    '商家', '店铺', '收藏', '分享', '定位', '加载', '更多', '展开', '收起', '广告', '推广',
+    '客服', '退款', '进店', '营业中', '休息中'];
+
+  function isNoiseName(name) {
+    var t = String(name || '').trim();
+    if (!t) return true;
+    var cjk = (t.match(/[\u4e00-\u9fa5]/g) || []).length;
+    if (cjk < 2) return true;              // 纯数字、时间、电量、单字
+    // 店名里几乎不会出现的符号（OCR 常把相邻的按钮文字拼成一行）
+    if (/[^\u4e00-\u9fa5A-Za-z0-9\s·&\-]/.test(t)) return true;
+    if (NAME_HARD_NOISE.test(t)) return true;
+    var soft = 0, i;
+    for (i = 0; i < NAME_SOFT_WORDS.length; i++) {
+      if (t.indexOf(NAME_SOFT_WORDS[i]) >= 0) soft++;
+    }
+    if (soft >= 2) return true;
+    var bare = t.replace(/[\s\d·•.。,，:：()（）\-—/|]/g, '');
+    if (NAME_SOFT_WORDS.indexOf(bare) >= 0) return true;
+    return false;
+  }
+
+  // 只有价格/距离、没有店名的行
+  function looksLikePriceOnly(line) {
+    var t = String(line || '');
+    if ((t.match(/[\u4e00-\u9fa5]/g) || []).length >= 2) return false;
+    return /[¥￥]\s*\d+|\d+\s*元|\d+(?:\.\d+)?\s*(?:km|公里|m|米)/i.test(t);
+  }
+
+  // 把识别出的整段文本按行过滤，返回 { text, kept, dropped }
+  function filterOcrLines(rawText) {
+    var lines = String(rawText || '').split(/\r?\n/);
+    var kept = [];
+    var dropped = 0;
+    lines.forEach(function (line) {
+      var t = line.trim();
+      if (!t) return;
+      if (!isNoiseName(cleanName(t))) { kept.push(t); return; }
+      // 稀疏模式下价格常常单独成行，并回上一家店，别丢
+      if (kept.length && looksLikePriceOnly(t)) {
+        kept[kept.length - 1] = kept[kept.length - 1] + ' ' + t;
+        return;
+      }
+      dropped++;
+    });
+    return { text: kept.join('\n'), kept: kept.length, dropped: dropped };
   }
 
   function buildRow(o, raw) {
@@ -1776,6 +1832,71 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     });
   }
 
+  function loadImageSrc(src) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { reject(new Error('图片解码失败')); };
+      img.src = src;
+    });
+  }
+
+  /**
+   * 识别前先处理图片：放大（小图）、灰度、对比度拉伸。
+   * 手机截图里浅灰字和背景贴太近，直接丢给引擎会丢字或串行。
+   */
+  async function preprocessImage(file) {
+    var dataUrl = await fileToDataURL(file);
+    var img = await loadImageSrc(dataUrl);
+    var w = img.naturalWidth || img.width;
+    var h = img.naturalHeight || img.height;
+    if (!w || !h) return dataUrl;
+
+    var targetW = w < 1000 ? Math.round(w * 2) : w;
+    if (targetW > 2400) targetW = 2400;
+    var scale = targetW / w;
+    var cw = Math.max(1, Math.round(w * scale));
+    var ch = Math.max(1, Math.round(h * scale));
+
+    var canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return dataUrl;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, cw, ch);
+
+    var image = ctx.getImageData(0, 0, cw, ch);
+    var px = image.data;
+    var total = cw * ch;
+    var hist = new Uint32Array(256);
+    var i;
+
+    // 灰度
+    for (i = 0; i < px.length; i += 4) {
+      var g = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) | 0;
+      px[i] = g; px[i + 1] = g; px[i + 2] = g;
+      hist[g]++;
+    }
+
+    // 5% / 95% 分位拉伸，压掉浅底、加深笔画
+    var lo = 0, hi = 255, acc = 0, j;
+    var lowTarget = total * 0.05;
+    for (j = 0; j < 256; j++) { acc += hist[j]; if (acc >= lowTarget) { lo = j; break; } }
+    acc = 0;
+    var highTarget = total * 0.95;
+    for (j = 0; j < 256; j++) { acc += hist[j]; if (acc >= highTarget) { hi = j; break; } }
+    var span = Math.max(1, hi - lo);
+    for (i = 0; i < px.length; i += 4) {
+      var v = ((px[i] - lo) * 255) / span;
+      v = v < 0 ? 0 : (v > 255 ? 255 : v);
+      px[i] = v; px[i + 1] = v; px[i + 2] = v;
+    }
+    ctx.putImageData(image, 0, 0);
+    return canvas.toDataURL('image/png');
+  }
+
   function cancelOcr() {
     ocrCancelled = true;
     showOcr(false);
@@ -1825,8 +1946,17 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       });
       if (ocrCancelled) { try { await ocrWorker.terminate(); } catch (e) {} return; }
 
+      // 稀疏文本模式：App 截图里文字零散分布，比默认整页模式分得清楚
+      try {
+        await ocrWorker.setParameters({
+          tessedit_pageseg_mode: '11',
+          preserve_interword_spaces: '1'
+        });
+      } catch (e) { /* 老版本不支持就算了 */ }
+
       setOcr('正在识别文字…', 82);
-      var dataUrl = await fileToDataURL(file);
+      var dataUrl = await preprocessImage(file);
+      if (ocrCancelled) return;
       var res = await ocrWorker.recognize(dataUrl);
       try { await ocrWorker.terminate(); } catch (e) {}
       ocrWorker = null;
@@ -1836,11 +1966,18 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       showOcr(false);
       clearTimeout(ocrTimer);
 
-      var text = (res && res.data && String(res.data.text || '')) || '';
-      if (!text.trim()) { toast('没认出文字，换张清晰点的截图'); return; }
-      $('#bulkText').value = text.trim();
+      var rawText = (res && res.data && String(res.data.text || '')) || '';
+      if (!rawText.trim()) { toast('没认出文字，换张清晰点的截图'); return; }
 
-      var parsed = parseShops(text);
+      var filtered = filterOcrLines(rawText);
+      if (!filtered.kept) {
+        toast('认出了文字，但都是界面文案，换个截图区域再试');
+        return;
+      }
+      if (filtered.dropped) toast('已过滤 ' + filtered.dropped + ' 行界面文字');
+      $('#bulkText').value = filtered.text;
+
+      var parsed = parseShops(filtered.text);
       if (!parsed.rows.length) {
         toast('认出文字了但没拆出店铺，看看上面原文手动改改');
         return;

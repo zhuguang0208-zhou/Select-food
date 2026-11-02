@@ -7,7 +7,7 @@
  *
  * 发版时把 VERSION 加一（和页面里的 BUILD 保持一致）。
  */
-var VERSION = 'v6';
+var VERSION = 'v7';
 var CACHE = 'eat-what-' + VERSION;
 var NET_TIMEOUT = 2500;
 
