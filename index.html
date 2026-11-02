@@ -551,6 +551,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
           <p class="hint" id="codeHint" style="margin:8px 0 0">—</p>
         </details>
       </div>
+
+      <p class="fineprint" id="buildLine" style="margin-top:18px">—</p>
     </section>
   </main>
 </div>
@@ -606,6 +608,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   /* ============ 常量 ============ */
   var LS_KEY = 'eat-what-v1';
   var APP_VERSION = 1;
+  var BUILD = 'v6';
+  var BUILD_DATE = '2026-11-02';
 
   var MEALS = {
     lunch:  { label: '午饭', icon: '☀️' },
@@ -2053,6 +2057,15 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     return Math.floor(s / 86400) + ' 天前';
   }
 
+  function fmtClock(ts) {
+    var d = new Date(ts || Date.now());
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+
+  function syncOkLabel() {
+    return '已同步 · ' + fmtClock(syncCfg.lastSyncAt);
+  }
+
   function renderSyncUI() {
     if (!$('#syncUrl')) return;
     $('#syncUrl').value = syncCfg.url;
@@ -2088,6 +2101,15 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     return new Error('HTTP ' + res.status + (msg ? '：' + String(msg).slice(0, 140) : ''));
   }
 
+  // 网络层失败（Failed to fetch）本身没有任何信息，补上实际请求的地址
+  function netExplain(e, url) {
+    var msg = (e && e.message) ? e.message : String(e);
+    if (/Failed to fetch|NetworkError|Load failed|fetch failed|Network request failed/i.test(msg)) {
+      return '连不上 ' + url + '（检查项目地址是否写错；也可能是网络访问不了 supabase）';
+    }
+    return msg;
+  }
+
   function renderAll() {
     renderPick();
     renderLib();
@@ -2109,19 +2131,20 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       syncCfg.lastPushAt = Date.parse(nowIso);
       syncCfg.lastSyncAt = Date.now();
       persistSync();
-      setSyncState('ok', '已同步 · 刚刚');
-      $('#syncDetail').textContent = '上次同步：' + new Date().toLocaleString();
+      setSyncState('ok', syncOkLabel());
+      $('#syncDetail').textContent = '上次同步：' + new Date(syncCfg.lastSyncAt).toLocaleString();
       return true;
     } catch (e) {
       setSyncState('err', '出错');
-      $('#syncDetail').textContent = e.message;
+      $('#syncDetail').textContent = netExplain(e, syncEndpoint());
       return false;
     }
   }
 
-  async function pullRemote() {
+  async function pullRemote(opts) {
+    var silent = !!(opts && opts.silent);
     if (!syncCfg.enabled || !syncCfg.url || !syncCfg.key) return false;
-    setSyncState('syncing', '同步中…');
+    if (!silent) setSyncState('syncing', '同步中…');
     try {
       var res = await fetch(syncEndpoint('?id=eq.' + SYNC_ROW + '&select=id,data,updated_at'), {
         headers: syncHeaders()
@@ -2136,8 +2159,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       if (remoteAt <= syncCfg.lastPushAt) {
         syncCfg.lastSyncAt = Date.now();
         persistSync();
-        setSyncState('ok', '已同步 · 刚刚');
-        $('#syncDetail').textContent = '上次同步：' + new Date().toLocaleString() + '（远端没有更新）';
+        setSyncState('ok', syncOkLabel());
+        $('#syncDetail').textContent = '上次同步：' + new Date(syncCfg.lastSyncAt).toLocaleString();
         return true;
       }
       state = normalize(rows[0].data);
@@ -2146,12 +2169,13 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       syncCfg.lastSyncAt = Date.now();
       persistSync();
       renderAll();
-      setSyncState('ok', '已拉取远端');
-      $('#syncDetail').textContent = '已用远端版本覆盖本地 · ' + new Date().toLocaleString();
+      setSyncState('ok', '已拉取远端 · ' + fmtClock(syncCfg.lastSyncAt));
+      $('#syncDetail').textContent = '已用远端版本覆盖本地 · ' + new Date(syncCfg.lastSyncAt).toLocaleString();
+      toast('已同步到最新');
       return true;
     } catch (e) {
-      setSyncState('err', '出错');
-      $('#syncDetail').textContent = e.message;
+      $('#syncDetail').textContent = netExplain(e, syncEndpoint('?id=eq.' + SYNC_ROW));
+      if (!silent) setSyncState('err', '出错');
       return false;
     }
   }
@@ -2162,26 +2186,73 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     pushTimer = setTimeout(function () { pushRemote(); }, 1500);
   }
 
+  function cleanSyncUrl(v) {
+    var s = String(v || '').trim().replace(/^["'`\s]+|["'`\s]+$/g, '');
+    if (!s) return '';
+    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+    return s.replace(/\/+$/, '');
+  }
+
+  function cleanSyncKey(v) {
+    var s = String(v || '').trim().replace(/^["'`\s]+|["'`\s]+$/g, '');
+    s = s.replace(/^Bearer\s+/i, '');
+    return s.replace(/\s+/g, '');
+  }
+
+  // 返回空串表示没问题，否则返回给用户看的原因
+  function syncConfigError(url, key) {
+    var keyLike = /^(ey[A-Za-z0-9_.-]{10,}|sb_(publishable|secret)_)/.test(url.replace(/^https?:\/\//i, ''));
+    if (keyLike || /^https?:\/\//i.test(key)) {
+      return '地址和 key 好像填反了：第一行放 https://xxxx.supabase.co，第二行放 eyJ… 那一长串';
+    }
+    if (!/^https?:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url)) {
+      if (/supabase\.com|dashboard/.test(url)) {
+        return '这是 Supabase 后台页面的地址，不能用。要的是 https://xxxx.supabase.co';
+      }
+      return '项目地址格式不对，应该是 https://xxxx.supabase.co（只到 .co，不要带 /rest/v1 这类路径）';
+    }
+    if (/^sb_secret_/.test(key)) {
+      return '这是 secret key（权限太大，只能在服务器用）。请换成 anon public 或 publishable key';
+    }
+    if (!/^ey[A-Za-z0-9_.-]{20,}$/.test(key) && !/^sb_publishable_/.test(key)) {
+      return 'key 看起来不对（现在 ' + key.length + ' 个字符）：应该是 eyJ 开头的一长串，或 sb_publishable_ 开头';
+    }
+    return '';
+  }
+
   async function enableSync() {
-    var url = $('#syncUrl').value.trim();
-    var key = $('#syncKey').value.trim();
-    if (!url || !key) { toast('先填项目地址和 anon key'); return; }
-    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-    if (!/^ey[A-Za-z0-9_.-]{20,}$/.test(key) && key.length < 30) {
-      toast('key 看起来不对，应该是一长串（anon public 或 publishable key）');
+    var url = cleanSyncUrl($('#syncUrl').value);
+    var key = cleanSyncKey($('#syncKey').value);
+
+    if (!url || !key) {
+      toast('两栏都要填：项目地址 + key');
+      $('#syncDetail').textContent = '项目地址形如 https://xxxx.supabase.co；key 在 Project Settings → API 里的 anon public';
       return;
     }
-    syncCfg.url = url.replace(/\/+$/, '');
+
+    var bad = syncConfigError(url, key);
+    if (bad) {
+      setSyncState('err', '配置有问题');
+      $('#syncDetail').textContent = bad;
+      toast('配置看起来不对，看下面的提示');
+      return;
+    }
+
+    // 回填清洗后的值，让用户看到实际会用的内容
+    $('#syncUrl').value = url;
+    $('#syncKey').value = key;
+
+    syncCfg.url = url;
     syncCfg.key = key;
     syncCfg.enabled = true;
     persistSync();
-    $('#syncDetail').textContent = '正在连接…';
+    $('#syncDetail').textContent = '正在连接 ' + url + ' …';
     var ok = await pullRemote();
     if (!ok) {
       syncCfg.enabled = false;
       persistSync();
       setSyncState('err', '连接失败');
-      toast('连接失败，看看下面的报错');
+      toast('连接失败，看看下面的提示');
       return;
     }
     save();
@@ -2502,14 +2573,26 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     renderSettings();
     renderQuick();
     renderSyncUI();
+    if ($('#buildLine')) $('#buildLine').textContent = '构建 ' + BUILD + ' · ' + BUILD_DATE;
+    try { console.log('今天吃什么 · 构建', BUILD); } catch (e) { /* 忽略 */ }
 
     // 开了云同步就先拉一次，拿远端最新的
     if (syncCfg.enabled) {
       // 本机还没有业务数据（第一次用 / 数据被清过）→ 强制拉，别用缓存里的时间戳挡住
       if (!hadLocalData) syncCfg.lastPushAt = 0;
       lastPullTry = Date.now();
-      setTimeout(function () { pullRemote(); }, 300);
+      pullRemote();
     }
+
+    // 页面开着的时候也定时拉，两台设备不用切来切去
+    setInterval(function () {
+      if (!syncCfg.enabled) return;
+      if (document.hidden) return;
+      if (!$('#modal').hidden) return;            // 正在确认导入时别打断
+      if (Date.now() - lastPullTry < 55000) return;
+      lastPullTry = Date.now();
+      pullRemote({ silent: true });
+    }, 60000);
 
     var hash = (location.hash || '').replace('#', '');
     if (hash === 'lib' || hash === 'set') switchView(hash);
