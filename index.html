@@ -105,6 +105,7 @@ h1{font-size:19px;margin:0;letter-spacing:.01em}
 .dish{font-size:clamp(27px,4.6vw,39px);font-weight:850;line-height:1.16;letter-spacing:-.01em;
   min-height:2.1em;display:flex;align-items:center;word-break:break-word;transition:.18s}
 .card.is-rolling .dish{opacity:.42;filter:blur(1px)}
+.from{margin:2px 0 8px;font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.01em}
 .meta{display:flex;flex-wrap:wrap;gap:6px;min-height:24px}
 .tag{font-size:11.5px;padding:4px 9px;border-radius:999px;background:var(--chip);color:var(--muted);font-weight:700;white-space:nowrap}
 .tag--warm{background:rgba(229,72,77,.13);color:var(--danger)}
@@ -208,6 +209,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 .shop__name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .shop__note{font-size:11.5px;color:var(--muted);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .shop__sub{display:flex;gap:5px;flex-wrap:wrap}
+.dishes{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;align-items:center;max-width:100%}
+.dish-chip{font:inherit;font-size:11.5px;font-weight:700;line-height:1;padding:5px 9px;border-radius:999px;
+  border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;transition:.15s}
+.dish-chip em{font-style:normal;color:var(--muted);font-weight:600}
+.dish-chip:hover{border-color:var(--accent);color:var(--accent)}
+.dish-chip.is-off{opacity:.42;text-decoration:line-through;border-style:dashed}
 .shop__sub .tag{font-size:10.5px;padding:2px 7px}
 .icon-del{width:30px;height:30px;flex:none;border-radius:10px;border:1px solid transparent;background:transparent;
   color:var(--muted);font-size:13px;cursor:pointer;transition:.16s}
@@ -402,6 +409,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
             <label><input type="checkbox" id="fDinner" checked> 晚饭</label>
           </div>
           <input type="text" id="fNote" class="wide" placeholder="备注（可选），例如 11:30 前下单快" maxlength="80">
+          <input type="text" id="fDishes" class="wide" placeholder="菜品（可选，逗号分隔）：香菇滑鸡饭, 黄焖鸡, 可乐鸡翅" maxlength="300">
           <button class="btn btn--primary wide" type="submit">加入店铺池</button>
         </form>
         <datalist id="catList"></datalist>
@@ -417,10 +425,14 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
           <div class="btn-row" style="margin-top:10px">
             <button class="btn btn--primary btn--sm" id="parseBtn" type="button">解析并预览</button>
             <button class="btn btn--sm" id="ocrBtn" type="button">识别截图</button>
-            <button class="btn btn--sm" id="tplBtn" type="button">下载模板</button>
+            <button class="btn btn--sm" id="aiOcrBtn" type="button">AI 识别</button>            <button class="btn btn--sm" id="tplBtn" type="button">下载模板</button>
+            <button class="btn btn--sm" id="sendPhoneBtn" type="button">发到手机</button>
           </div>
+          <p class="hint" id="importSyncHint" style="margin:8px 0 0">—</p>
+          <textarea id="sendCode" hidden spellcheck="false" style="margin-top:8px;min-height:64px"></textarea>
           <p class="hint" style="margin:8px 0 0">截图识别需要联网，首次约 1 分钟（要下载识别数据），之后会快很多。</p>
           <input type="file" id="ocrFile" accept="image/*" hidden>
+          <input type="file" id="aiFile" accept="image/*" multiple hidden>
           <input type="file" id="dataFile" accept=".txt,.csv,.json,.md,text/plain,application/json" hidden>
         </div>
       </div>
@@ -464,6 +476,16 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
           <input type="range" id="maxDist" min="0" max="5000" step="100" value="0">
           <b class="num" id="distOut">不限</b>
         </div>
+        <div class="set-row">
+          <span>重复限制</span>
+          <div class="seg" id="cdSeg">
+            <button type="button" data-cdby="shop">按店避开</button>
+            <button type="button" data-cdby="dish">按菜避开</button>
+          </div>
+        </div>
+        <p class="hint" style="margin:-4px 0 10px">
+          按店：几天内不重复同一家店（哪怕换道菜）；按菜：只避开吃过的那道菜，同店别的菜还能抽。
+        </p>
         <div class="set-row">
           <span>人均上限（0 = 不限）</span>
           <div class="mealpick" style="gap:8px">
@@ -526,6 +548,64 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         </details>
       </div>
 
+      <div class="panel" id="aiPanel">
+        <div class="panel__hd">
+          <h2>AI 识别</h2>
+          <span class="sync-state" id="aiState"><i></i><b>未连接</b></span>
+        </div>
+        <div class="set-row" style="margin-bottom:6px">
+          <span>渠道</span>
+          <div class="seg" id="aiModeSeg">
+            <button type="button" data-aimode="api">云端 API</button>
+            <button type="button" data-aimode="ollama">本地 Ollama</button>
+          </div>
+        </div>
+
+        <div id="aiApiBox">
+          <div class="form-grid" style="grid-template-columns:1fr 1fr">
+            <select id="aiProvider">
+              <option value="deepseek">DeepSeek（官方 API·最便宜）</option>
+              <option value="dashscope">阿里百炼（中文最准·有免费额度）</option>
+              <option value="siliconflow">硅基流动（国内快·有免费额度）</option>
+              <option value="openrouter">OpenRouter（有 $0 模型）</option>
+              <option value="custom">自定义</option>
+            </select>
+            <input type="password" id="aiKey" placeholder="API Key，例如 sk-... " autocomplete="off" spellcheck="false">
+            <input type="text" id="aiApiModel" placeholder="模型名" autocomplete="off" spellcheck="false">
+            <input type="text" id="aiBase" placeholder="https://api.siliconflow.cn/v1" autocomplete="off" spellcheck="false">
+          </div>
+          <p class="hint" style="margin:8px 0 0">
+            API Key 去服务商控制台复制（DeepSeek 在 platform.deepseek.com/api_keys），只存在这台设备的浏览器里：
+            <b>不会同步、不会写进代码、不会出现在导出备份和同步码中</b>。
+            一张截图大约几厘钱。选「自定义」可以填任何 OpenAI 兼容接口。
+          </p>
+          <p class="hint" style="margin:6px 0 0">
+            注意：Key 以明文存在本机浏览器（同源网页读不到，但共用这台电脑的人可以在开发者工具里看到）。
+            公用设备用完建议点「清除 Key」。
+          </p>
+          <div class="btn-row" style="margin-top:8px">
+            <button class="btn btn--sm btn--danger" id="aiClearKey" type="button">清除 Key</button>
+          </div>
+        </div>
+
+        <div id="aiOllamaBox">
+          <p class="hint" style="margin:0 0 8px">
+            用本机 Ollama 的视觉模型，离线可用。需要 Ollama 已启动并下载了模型；
+            因为浏览器跨域限制，<b>只有通过「预览服务器.cmd」打开时能用</b>。
+          </p>
+          <div class="form-grid" style="grid-template-columns:1fr 1fr">
+            <input type="text" id="aiUrl" placeholder="http://127.0.0.1:11434" autocomplete="off" spellcheck="false">
+            <input type="text" id="aiModel" placeholder="qwen3-vl:4b" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn btn--sm btn--primary" id="aiTest" type="button">测试连接</button>
+          <button class="btn btn--sm" id="aiSave" type="button">保存</button>
+        </div>
+        <p class="hint" id="aiDetail" style="margin:10px 0 0">—</p>
+      </div>
+
       <div class="panel">
         <div class="panel__hd"><h2>数据</h2></div>
         <div class="btn-row">
@@ -572,7 +652,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
           <tr>
             <th style="width:34px"><input type="checkbox" id="chkAll" checked></th>
             <th>店名</th><th style="width:76px">区域</th><th style="width:110px">品类</th><th style="width:78px">人均</th>
-            <th style="width:86px">距离(米)</th><th style="width:104px">平台</th><th style="width:62px">状态</th>
+            <th style="width:86px">距离(米)</th><th style="width:180px">菜品（逗号分隔）</th><th style="width:104px">平台</th><th style="width:62px">状态</th>
           </tr>
         </thead>
         <tbody id="pbody"></tbody>
@@ -608,8 +688,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   /* ============ 常量 ============ */
   var LS_KEY = 'eat-what-v1';
   var APP_VERSION = 1;
-  var BUILD = 'v7';
-  var BUILD_DATE = '2026-11-02';
+  var BUILD = 'v20';
+  var BUILD_DATE = '2026-11-03';
 
   var MEALS = {
     lunch:  { label: '午饭', icon: '☀️' },
@@ -626,17 +706,22 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
   var SEED_SHOPS = [
     /* ---- 校内 ---- */
-    { name: '一食堂盖浇饭',     zone: 'school',  platform: 'both',    cat: '米饭',     price: 15, distance: 200,  note: '排队快' },
+    { name: '一食堂盖浇饭',     zone: 'school',  platform: 'both',    cat: '米饭',     price: 15, distance: 200,  note: '排队快',
+      dishes: [{ name: '土豆牛肉盖饭', price: 15 }, { name: '番茄鸡蛋盖饭', price: 12 }, { name: '鱼香肉丝盖饭', price: 14 }] },
     { name: '二食堂麻辣香锅',   zone: 'school',  platform: 'both',    cat: '火锅烧烤', price: 18, distance: 250,  note: '中午人多' },
-    { name: '三食堂牛肉面',     zone: 'school',  platform: 'both',    cat: '面食',     price: 12, distance: 300,  note: '分量大' },
+    { name: '三食堂牛肉面',     zone: 'school',  platform: 'both',    cat: '面食',     price: 12, distance: 300,  note: '分量大',
+      dishes: [{ name: '牛肉面', price: 12 }, { name: '加肉牛肉面', price: 16 }, { name: '酸菜面', price: 10 }] },
     { name: '四食堂自选快餐',   zone: 'school',  platform: 'both',    cat: '快餐',     price: 14, distance: 220,  note: '' },
     { name: '学校超市关东煮',   zone: 'school',  platform: 'both',    cat: '快餐',     price: 12, distance: 150,  note: '赶时间专用', meals: ['lunch'] },
     { name: '宿舍楼下便利店',   zone: 'school',  platform: 'both',    cat: '快餐',     price: 16, distance: 180,  note: '', meals: ['lunch'] },
     /* ---- 校外 ---- */
-    { name: '老乡鸡',           zone: 'outside', platform: 'both',    cat: '快餐',     price: 28, distance: 420,  note: '11:30 前下单快' },
-    { name: '兰州牛肉面',       zone: 'outside', platform: 'both',    cat: '面食',     price: 22, distance: 650,  note: '加蛋加牛肉' },
+    { name: '老乡鸡',           zone: 'outside', platform: 'both',    cat: '快餐',     price: 28, distance: 420,  note: '11:30 前下单快',
+      dishes: [{ name: '香菇滑鸡饭', price: 22 }, { name: '黄焖鸡米饭', price: 24 }, { name: '可乐鸡翅', price: 18 }, { name: '农家蒸蛋', price: 8 }] },
+    { name: '兰州牛肉面',       zone: 'outside', platform: 'both',    cat: '面食',     price: 22, distance: 650,  note: '加蛋加牛肉',
+      dishes: [{ name: '牛肉面', price: 15 }, { name: '加肉牛肉面', price: 22 }, { name: '小碗面', price: 12 }] },
     { name: '黄焖鸡米饭',       zone: 'outside', platform: 'both',    cat: '米饭',     price: 24, distance: 380,  note: '' },
-    { name: '麦当劳',           zone: 'outside', platform: 'both',    cat: '快餐',     price: 32, distance: 500,  note: '1+1 划算' },
+    { name: '麦当劳',           zone: 'outside', platform: 'both',    cat: '快餐',     price: 32, distance: 500,  note: '1+1 划算',
+      dishes: [{ name: '麦辣鸡腿堡', price: 25 }, { name: '板烧鸡腿堡', price: 24 }, { name: '双层吉士汉堡', price: 20 }, { name: '薯条', price: 12 }] },
     { name: '肯德基',           zone: 'outside', platform: 'both',    cat: '快餐',     price: 35, distance: 700,  note: '' },
     { name: '沙县小吃',         zone: 'outside', platform: 'both',    cat: '快餐',     price: 18, distance: 260,  note: '拌面加馄饨' },
     { name: '杨国福麻辣烫',     zone: 'outside', platform: 'both',    cat: '火锅烧烤', price: 30, distance: 800,  note: '' },
@@ -702,7 +787,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   var toastTimer = null;
   function toast(msg) {
     var el = $('#toast');
-    el.textContent = msg;
+    el.textContent = (typeof scrubSecret === 'function') ? scrubSecret(msg) : msg;
     el.classList.add('is-on');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { el.classList.remove('is-on'); }, 2200);
@@ -740,6 +825,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   function defaultSettings() {
     return {
       cooldown: 3,
+      cooldownBy: 'shop',
       allowSame: false,
       weighted: true,
       platform: 'both',
@@ -751,7 +837,41 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     };
   }
 
+  function makeDish(d) {
+    return {
+      id: d.id || uid(),
+      name: String(d.name || '').slice(0, 40),
+      price: clampInt(d.price, 0, 9999, 0),
+      weight: clampInt(d.weight, 1, 5, 1),
+      enabled: d.enabled !== false
+    };
+  }
+
+  // "香菇滑鸡饭, 黄焖鸡 ¥22, 可乐鸡翅 18" → [{name, price}]
+  function parseDishText(text) {
+    if (!text) return [];
+    return String(text).split(/[,，;；、|\n]+/).map(function (raw) {
+      var t = String(raw || '').trim();
+      if (!t) return null;
+      var price = 0;
+      var m = t.match(/[¥￥]\s*(\d+(?:\.\d+)?)/) || t.match(/(\d+(?:\.\d+)?)\s*元/);
+      if (m) {
+        price = Math.round(parseFloat(m[1]));
+        t = t.replace(m[0], ' ');
+      } else {
+        var m2 = t.match(/\s(\d{1,3})$/);
+        if (m2) { price = parseInt(m2[1], 10); t = t.slice(0, m2.index); }
+      }
+      t = t.replace(/\s+/g, ' ').trim();
+      if (!t) return null;
+      return { name: t.slice(0, 40), price: price > 0 && price <= 999 ? price : 0 };
+    }).filter(Boolean);
+  }
+
   function makeShop(s) {
+    var dishes = Array.isArray(s.dishes)
+      ? s.dishes.filter(function (d) { return d && String(d.name || '').trim(); }).map(makeDish)
+      : [];
     return {
       id: s.id || uid(),
       name: String(s.name).slice(0, 40),
@@ -763,6 +883,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       note: s.note ? String(s.note).slice(0, 80) : '',
       weight: clampInt(s.weight, 1, 5, 1),
       enabled: s.enabled !== false,
+      dishes: dishes,
       meals: Array.isArray(s.meals) && s.meals.length
         ? s.meals.filter(function (m) { return MEALS[m]; })
         : ['lunch', 'dinner']
@@ -822,6 +943,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
     base.settings = {
       cooldown: clampInt(st.cooldown, 0, 14, d.cooldown),
+      cooldownBy: st.cooldownBy === 'dish' ? 'dish' : 'shop',
       allowSame: !!st.allowSame,
       weighted: st.weighted !== false,
       platform: (st.platform === 'meituan' || st.platform === 'taobao') ? st.platform : 'both',
@@ -846,6 +968,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
           day[meal] = {
             id: String(r.id),
             name: String(r.name).slice(0, 40),
+            dishId: r.dishId ? String(r.dishId) : null,
+            dishName: r.dishName ? String(r.dishName).slice(0, 40) : '',
             zone: r.zone === 'school' ? 'school' : 'outside',
             platform: (r.platform === 'meituan' || r.platform === 'taobao') ? r.platform : 'both',
             cat: (r.cat && r.cat !== '饮品甜点') ? String(r.cat).slice(0, 12) : '其他',
@@ -934,22 +1058,34 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     }
     var mp = st.maxPrice[meal] || 0;
     if (mp > 0) {
-      pool = pool.filter(function (s) { return !s.price || s.price <= mp; });
+      // 有菜品的店留给候选层按单个菜的价钱过滤
+      pool = pool.filter(function (s) {
+        if ((s.dishes || []).length) return true;
+        return !s.price || s.price <= mp;
+      });
     }
     return pool;
   }
 
-  function recentIds(meal, dateKey, days) {
-    var set = {};
-    if (!days) return set;
+  function candidateKey(shopId, dishId) {
+    return dishId ? shopId + '#' + dishId : shopId;
+  }
+
+  // 历史记录里出现过的店 / 具体菜品
+  function recentKeys(meal, dateKey, days) {
+    var shops = {}, keys = {};
+    if (!days) return { shops: shops, keys: keys };
     var base = keyToDate(dateKey);
     for (var i = 1; i <= days; i++) {
       var d = new Date(base.getTime());
       d.setDate(d.getDate() - i);
       var rec = state.records[todayKey(d)];
-      if (rec && rec[meal]) set[rec[meal].id] = true;
+      if (!rec || !rec[meal]) continue;
+      var r = rec[meal];
+      if (r.id) shops[r.id] = true;
+      keys[candidateKey(r.id, r.dishId)] = true;
     }
-    return set;
+    return { shops: shops, keys: keys };
   }
 
   function weightedPick(list) {
@@ -967,29 +1103,70 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     return list[list.length - 1];
   }
 
-  function pickOne(meal, dateKey, excludeIds) {
-    var pool = filterPool(meal);
-    if (!pool.length) return { item: null, relaxed: false };
-    var narrow = pool;
-    excludeIds = excludeIds || [];
-    if (excludeIds.length) {
-      var e = narrow.filter(function (s) { return excludeIds.indexOf(s.id) < 0; });
-      if (e.length) narrow = e;
+  // 把店铺展开成候选：有菜品就一道道抽，没有就抽整店
+  function expandCandidates(pool, meal) {
+    var mp = state.settings.maxPrice[meal] || 0;
+    var out = [];
+    pool.forEach(function (shop) {
+      var ds = (shop.dishes || []).filter(function (d) { return d.enabled !== false; });
+      if (!ds.length) {
+        if (mp > 0 && shop.price && shop.price > mp) return;
+        out.push({ shop: shop, dish: null, key: shop.id, weight: Math.max(1, shop.weight), price: shop.price || 0 });
+        return;
+      }
+      ds.forEach(function (d) {
+        var p = d.price || shop.price || 0;
+        if (mp > 0 && p && p > mp) return;
+        out.push({ shop: shop, dish: d, key: candidateKey(shop.id, d.id), weight: Math.max(1, d.weight || 1), price: p });
+      });
+    });
+    return out;
+  }
+
+  function pickOne(meal, dateKey, opts) {
+    opts = opts || {};
+    var shopPool = filterPool(meal);
+    if (!shopPool.length) return { item: null, relaxed: false };
+    var narrow = expandCandidates(shopPool, meal);
+    if (!narrow.length) return { item: null, relaxed: false };
+
+    var exShop = opts.excludeShopIds || [];
+    if (exShop.length) {
+      var a = narrow.filter(function (c) { return exShop.indexOf(c.shop.id) < 0; });
+      if (a.length) narrow = a;
     }
+    var exKey = opts.excludeKeys || [];
+    if (exKey.length) {
+      var b = narrow.filter(function (c) { return exKey.indexOf(c.key) < 0; });
+      if (b.length) narrow = b;
+    }
+
     var relaxed = false;
     var cd = state.settings.cooldown;
     if (cd > 0) {
-      var recent = recentIds(meal, dateKey, cd);
-      var f = narrow.filter(function (s) { return !recent[s.id]; });
+      var rec = recentKeys(meal, dateKey, cd);
+      var byDish = state.settings.cooldownBy === 'dish';
+      var f = narrow.filter(function (c) {
+        return byDish ? !rec.keys[c.key] : !rec.shops[c.shop.id];
+      });
       if (f.length) narrow = f; else relaxed = narrow.length > 0;
     }
     return { item: weightedPick(narrow), relaxed: relaxed };
   }
 
-  function snap(s) {
+  function snap(c) {
     return {
-      id: s.id, name: s.name, zone: s.zone, platform: s.platform, cat: s.cat,
-      price: s.price, distance: s.distance, reroll: false, at: Date.now()
+      id: c.shop.id,
+      name: c.shop.name,
+      dishId: c.dish ? c.dish.id : null,
+      dishName: c.dish ? c.dish.name : '',
+      zone: c.shop.zone,
+      platform: c.shop.platform,
+      cat: c.shop.cat,
+      price: (c.dish && c.dish.price) ? c.dish.price : c.shop.price,
+      distance: c.shop.distance,
+      reroll: false,
+      at: Date.now()
     };
   }
 
@@ -1001,7 +1178,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       if (rec[meal]) return;
       var excl = [];
       if (meal === 'dinner' && !state.settings.allowSame && rec.lunch) excl.push(rec.lunch.id);
-      var out = pickOne(meal, key, excl);
+      var out = pickOne(meal, key, { excludeShopIds: excl });
       if (out.item) { rec[meal] = snap(out.item); changed = true; }
     });
     if (changed) save();
@@ -1030,6 +1207,10 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     var locked = !!(state.decided[key] && state.decided[key][meal]);
     var pool = filterPool(meal);
     var allPool = basePool(meal);
+    var hasDish = pool.some(function (s) {
+      return (s.dishes || []).some(function (d) { return d.enabled !== false; });
+    });
+    var candCount = hasDish ? expandCandidates(pool, meal).length : pool.length;
     var body = '';
 
     if (!pool.length) {
@@ -1059,7 +1240,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         goBtns += '<a class="go__btn go__btn--tb" href="' + esc(goURL('taobao', rec.name)) + '" target="_blank" rel="noopener" data-act="go" data-plat="taobao" data-name="' + esc(rec.name) + '">去淘宝闪购</a>';
       }
       body =
-        '<div class="dish">' + esc(rec.name) + '</div>' +
+        '<div class="dish">' + esc(rec.dishName || rec.name) + '</div>' +
+        (rec.dishName ? '<div class="from">来自 ' + esc(rec.name) + '</div>' : '') +
         '<div class="meta">' +
           (rec.zone ? '<span class="tag tag--zone' + (rec.zone === 'school' ? ' tag--school' : '') + '">' + (ZONE_LABEL[rec.zone] || '校外') + '</span>' : '') +
           '<span class="tag">' + esc(rec.cat || '其他') + '</span>' +
@@ -1075,7 +1257,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       '<div class="card__hd">' +
         '<span class="card__icon">' + m.icon + '</span>' +
         '<span class="card__title">' + m.label + '</span>' +
-        '<span class="card__pool">候选 ' + pool.length + ' 家</span>' +
+        '<span class="card__pool">候选 ' + candCount + (hasDish ? ' 道' : ' 家') + '</span>' +
       '</div>' +
       body +
       '<div class="scope">范围：<b>' + esc(scopeSummary(meal)) + '</b>' +
@@ -1109,7 +1291,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         var r = state.records[k];
         var cell = function (meal) {
           if (!r[meal]) return '<div class="hist__c"><em>—</em></div>';
-          return '<div class="hist__c"><b>' + esc(r[meal].name) + '</b><em>' +
+          return '<div class="hist__c"><b>' + esc(r[meal].dishName || r[meal].name) + '</b><em>' +
+            (r[meal].dishName ? esc(r[meal].name) + ' · ' : '') +
             (r[meal].price ? '¥' + r[meal].price + ' · ' : '') + platShort(r[meal].platform) + '</em></div>';
         };
         return '<div class="hist__row"><div class="hist__d">' +
@@ -1160,11 +1343,13 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
       var key = todayKey();
       var rec = state.records[key] || (state.records[key] = {});
-      var current = rec[meal] ? rec[meal].id : null;
-      var excl = current ? [current] : [];
-      if (meal === 'dinner' && !state.settings.allowSame && rec.lunch) excl.push(rec.lunch.id);
+      var current = rec[meal] ? rec[meal] : null;
+      var exclShop = [];
+      var exclKey = [];
+      if (current) exclKey.push(candidateKey(current.id, current.dishId));
+      if (meal === 'dinner' && !state.settings.allowSame && rec.lunch) exclShop.push(rec.lunch.id);
 
-      var out = pickOne(meal, key, excl);
+      var out = pickOne(meal, key, { excludeShopIds: exclShop, excludeKeys: exclKey });
       if (!out.item) { toast('没有可抽的店了'); renderPick(); return; }
 
       state.nonce[key + ':' + meal] = (state.nonce[key + ':' + meal] || 0) + 1;
@@ -1175,7 +1360,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
       // 午饭换完如果和晚饭撞了，晚饭重抽
       if (meal === 'lunch' && !state.settings.allowSame && rec.dinner && rec.dinner.id === rec.lunch.id) {
-        var out2 = pickOne('dinner', key, [rec.lunch.id]);
+        var out2 = pickOne('dinner', key, { excludeShopIds: [rec.lunch.id] });
         if (out2.item) { rec.dinner = snap(out2.item); }
       }
 
@@ -1303,6 +1488,16 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         lastCat = s.cat;
       }
       var mealTag = (s.meals.indexOf('lunch') >= 0 ? '午' : '') + (s.meals.indexOf('dinner') >= 0 ? '晚' : '');
+      var dishes = s.dishes || [];
+      var onDishes = dishes.filter(function (d) { return d.enabled !== false; });
+      var dishBlock = '';
+      if (dishes.length) {
+        dishBlock = '<div class="dishes">' + dishes.map(function (d) {
+          return '<button class="dish-chip' + (d.enabled === false ? ' is-off' : '') + '" type="button" ' +
+            'data-act="dishtoggle" data-dish="' + esc(d.id) + '" title="点击停用/启用">' +
+            esc(d.name) + (d.price ? ' <em>¥' + d.price + '</em>' : '') + '</button>';
+        }).join('') + '</div>';
+      }
       html += '<div class="shop' + (s.enabled ? '' : ' is-off') + '" data-id="' + esc(s.id) + '">' +
         '<button class="w" type="button" data-act="weight" title="点击调整出现概率">×' + s.weight + '</button>' +
         '<div class="shop__main">' +
@@ -1314,7 +1509,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
             (s.price ? '<span class="tag">¥' + s.price + '</span>' : '') +
             (s.distance ? '<span class="tag">' + fmtDist(s.distance) + '</span>' : '') +
             (mealTag ? '<span class="tag">' + mealTag + '</span>' : '') +
+            (dishes.length ? '<span class="tag tag--warm">' + onDishes.length + '/' + dishes.length + ' 道菜</span>' : '') +
           '</div>' +
+          dishBlock +
         '</div>' +
         '<label class="switch switch--sm"><input type="checkbox" data-act="toggle"' + (s.enabled ? ' checked' : '') + '><i></i></label>' +
         '<button class="icon-del" type="button" data-act="del" title="删除">✕</button>' +
@@ -1331,6 +1528,16 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     var id = row.dataset.id;
     var shop = state.shops.filter(function (s) { return s.id === id; })[0];
     if (!shop) return;
+
+    if (t.dataset.act === 'dishtoggle') {
+      var did = t.dataset.dish;
+      var dish = (shop.dishes || []).filter(function (d) { return d.id === did; })[0];
+      if (!dish) return;
+      dish.enabled = dish.enabled === false;
+      save(); renderLib(); renderPick();
+      toast(dish.enabled ? '「' + dish.name + '」已启用' : '「' + dish.name + '」已停用');
+      return;
+    }
 
     if (t.dataset.act === 'weight') {
       shop.weight = shop.weight >= 3 ? 1 : shop.weight + 1;
@@ -1371,6 +1578,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       price: $('#fPrice').value,
       distance: $('#fDist').value,
       note: $('#fNote').value.trim(),
+      dishes: parseDishText($('#fDishes').value),
       meals: meals
     }));
     save();
@@ -1378,7 +1586,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     $('#fLunch').checked = true;
     $('#fDinner').checked = true;
     renderLib(); renderPick(); renderSettings(); renderQuick();
-    toast('已加入「' + name + '」');
+    var dn = (state.shops[state.shops.length - 1].dishes || []).length;
+    toast('已加入「' + name + '」' + (dn ? ' · ' + dn + ' 道菜' : ''));
   }
 
   /* ============ 智能导入：解析 ============ */
@@ -1450,8 +1659,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     var cut = s.search(/[,，;；]/);
     if (cut > 0) s = s.slice(0, cut);
     s = s.replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1');
+    s = s.replace(/[：:]\s*(?=[\d¥￥])/g, ' ');
     s = s.replace(/\s{2,}/g, ' ').trim();
-    s = s.replace(/^[\s\-–—_*#•]+/, '').replace(/[\s\-–—_*#•]+$/, '');
+    s = s.replace(/^[\s\-–—_*#•]+/, '').replace(/[\s\-–—_*#•：:、，,；;。.]+$/, '');
     return s.slice(0, 40).trim();
   }
 
@@ -1469,6 +1679,19 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   var NAME_SOFT_WORDS = ['附近', '全部', '首页', '我的', '订单', '消息', '推荐', '热销', '新品',
     '商家', '店铺', '收藏', '分享', '定位', '加载', '更多', '展开', '收起', '广告', '推广',
     '客服', '退款', '进店', '营业中', '休息中'];
+
+  // 表头／列名残留，永远不是店名
+  var RESERVED_NAME = /^(?:店名|店铺名?|名称|距离|米数|价格|人均|评分|月售|销量|平台|状态|品类|分类|区域|菜品|操作|备注)$/;
+
+  // 能不能当店名用：buildRow 与 parseLine 共用这一套规则，避免两处判断不一致
+  function isUsableShopName(name) {
+    var t = String(name || '').trim();
+    if (t.length < 2) return false;
+    if (!/[\u4e00-\u9fa5a-zA-Z]/.test(t)) return false;                       // 纯数字、百分号、符号
+    if (/^\d+(?:\.\d+)?\s*(?:m|米|km|公里|分|分钟|%|元)?$/i.test(t)) return false;  // 米数/时长/评分
+    if (RESERVED_NAME.test(t)) return false;
+    return true;
+  }
 
   function isNoiseName(name) {
     var t = String(name || '').trim();
@@ -1516,8 +1739,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
   function buildRow(o, raw) {
     var name = cleanName(o.name || '');
-    if (!name || name.length < 2) return null;
-    if (!/[\u4e00-\u9fa5a-zA-Z]/.test(name)) return null;
+    if (!isUsableShopName(name)) return null;
 
     var price = (o.price !== undefined && o.price !== null && o.price !== '')
       ? clampInt(o.price, 0, 999, 0) : parsePrice(raw || '');
@@ -1532,6 +1754,19 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     var cat = (o.cat && String(o.cat).slice(0, 12));
     if (!cat || cat === '饮品甜点') cat = guessCat(name + ' ' + (raw || ''));
 
+    // 菜品：显式字段（AI 结果 / 表格列），或 "店名 | 菜1, 菜2" 竖线右边
+    var dishes = [];
+    if (Array.isArray(o.dishes)) {
+      o.dishes.forEach(function (d) {
+        if (!d) return;
+        var nm = typeof d === 'string' ? d : (d.name || '');
+        if (String(nm).trim()) dishes.push({ name: String(nm).trim().slice(0, 40), price: clampInt(d && d.price, 0, 999, 0) });
+      });
+    } else if (typeof o.dishes === 'string' && o.dishes.trim()) {
+      dishes = parseDishText(o.dishes);
+    }
+    if (!dishes.length && o.dishText) dishes = parseDishText(o.dishText);
+
     return {
       name: name,
       zone: zone,
@@ -1539,6 +1774,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       price: price,
       distance: distance,
       platform: plat,
+      dishes: dishes,
       meals: (Array.isArray(o.meals) && o.meals.length) ? o.meals.filter(function (m) { return MEALS[m]; }) : ['lunch', 'dinner'],
       include: true
     };
@@ -1549,6 +1785,13 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     if (!t) return null;
     if (/^https?:\/\//i.test(t)) return null;
 
+    // "店名 | 菜1, 菜2" —— 竖线右边是菜品
+    var dishText = '';
+    var bar = t.indexOf('|');
+    if (bar > 0) {
+      dishText = t.slice(bar + 1).trim();
+      t = t.slice(0, bar).trim();
+    }
     // 位置式：店名,品类,价格,距离（括号里的逗号不算分隔，避免拆错）
     var parts = t.split(/[,，\t]+/).map(function (x) { return x.trim(); });
     var parenIdx = t.search(/[（(【\[]/);
@@ -1561,13 +1804,14 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       if (parts[idx] && /^[\d.]+$/.test(parts[idx])) { o.price = parts[idx]; used = true; idx++; }
       if (parts[idx] && /^[\d.]+$/.test(parts[idx])) { o.distance = parts[idx]; used = true; idx++; }
       if (used) {
+        o.dishText = dishText;
         var posRow = buildRow(o, t);
         if (posRow) return posRow;
       }
     }
 
     var name = cleanName(t);
-    if (!name || name.length < 2) return null;
+    if (!isUsableShopName(name)) return null;
     return {
       name: name,
       zone: guessZone(t),
@@ -1575,6 +1819,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       price: parsePrice(t),
       distance: parseDistance(t),
       platform: guessPlatform(t),
+      dishes: parseDishText(dishText),
       meals: ['lunch', 'dinner'],
       include: true
     };
@@ -1608,6 +1853,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         price: s.price !== undefined ? s.price : s['人均'],
         distance: s.distance !== undefined ? s.distance : s['距离'],
         platform: s.platform || '',
+        dishes: s.dishes || s['菜品'] || s.dishList,
         meals: s.meals
       }, '');
       if (row) rows.push(row);
@@ -1645,7 +1891,34 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         if (row) rows.push(row); else ignored++;
         return;
       }
+      // AI 菜单行：列表模式下没有意义，直接忽略
+      if (/^\s*菜\s*[|｜]/.test(t)) { ignored++; return; }
+
+      // AI 店铺列表格式：店|店名|距离|区域 —— 整体是一条记录，不能按竖线拆碎
+      var aiShop = t.match(/^\s*店\s*[|｜]\s*([^|｜]*)(?:[|｜]\s*([^|｜]*))?(?:[|｜]\s*([^|｜]*))?/);
+      if (aiShop) {
+        var fields = splitShopFields([aiShop[1], aiShop[2], aiShop[3]]);
+        var aiName = cleanName(fields.name || '');
+        if (isUsableShopName(aiName)) {
+          var aiRow = buildRow({ name: aiName, distance: fields.distance, zone: fields.zone || '' }, t);
+          if (aiRow) { rows.push(aiRow); return; }
+        }
+        ignored++;
+        return;
+      }
+
+      // 竖线右边像菜品（含逗号或价格）→ 当作「店名 | 菜品」；否则仍是「一行多家店」
       var segs = t.split(/[|｜]/);
+      if (segs.length >= 2) {
+        var left = segs[0].trim();
+        var right = segs.slice(1).join(' ').trim();
+        var rightIsDish = /[,，]/.test(right) || /[¥￥]\s*\d|\d+\s*元|\s\d{1,3}$/.test(right);
+        if (rightIsDish && left && !/[,，]/.test(left)) {
+          var base = parseLine(left);
+          var ds = parseDishText(right);
+          if (base && ds.length) { base.dishes = ds; rows.push(base); return; }
+        }
+      }
       segs.forEach(function (seg) {
         var r = parseLine(seg.trim());
         if (r) rows.push(r); else if (seg.trim()) ignored++;
@@ -1686,7 +1959,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
   function renderPreview(ignored) {
     var dup = previewRows.filter(function (r) { return r.dup; }).length;
+    var dishCount = previewRows.reduce(function (n, r) { return n + ((r.dishes && r.dishes.length) || 0); }, 0);
     var parts = ['识别到 ' + previewRows.length + ' 家'];
+    if (dishCount) parts.push(dishCount + ' 道菜');
     if (dup) parts.push(dup + ' 家已在店铺池（默认跳过）');
     if (ignored) parts.push('忽略 ' + ignored + ' 行');
     $('#modalSummary').textContent = parts.join('，');
@@ -1699,6 +1974,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
         '<td><input type="text" data-f="cat" list="catList" value="' + esc(r.cat) + '" maxlength="12"></td>' +
         '<td><input type="number" data-f="price" value="' + (r.price || '') + '" min="0" max="999" placeholder="—"></td>' +
         '<td><input type="number" data-f="distance" value="' + (r.distance || '') + '" min="0" max="99999" step="10" placeholder="—"></td>' +
+        '<td><input type="text" data-f="dishes" value="' + esc(dishTextOf(r)) + '" maxlength="300" placeholder="香菇滑鸡饭, 黄焖鸡"></td>' +
         '<td><select data-f="platform">' + platOptions(r.platform) + '</select></td>' +
         '<td><span class="tag-mini ' + (r.dup ? 'tag-mini--dup">已存在' : 'tag-mini--new">新增') + '</span></td>' +
       '</tr>';
@@ -1718,6 +1994,13 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     });
   }
 
+  function dishTextOf(r) {
+    if (!r || !Array.isArray(r.dishes) || !r.dishes.length) return '';
+    return r.dishes.map(function (d) {
+      return d.name + (d.price ? ' ' + d.price : '');
+    }).join(', ');
+  }
+
   function onPreviewEdit(e) {
     var t = e.target;
     var f = t.dataset && t.dataset.f;
@@ -1730,6 +2013,8 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       row.include = t.checked;
       tr.classList.toggle('is-off', !t.checked);
       syncChkAll();
+    } else if (f === 'dishes') {
+      row.dishes = parseDishText(t.value);
     } else if (f === 'price') {
       row.price = clampInt(t.value, 0, 999, 0);
     } else if (f === 'distance') {
@@ -1770,11 +2055,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       if (hit) {
         hit.cat = r.cat; hit.price = r.price; hit.distance = r.distance;
         hit.platform = r.platform; hit.meals = r.meals; hit.zone = r.zone;
+        if (Array.isArray(r.dishes) && r.dishes.length) hit.dishes = r.dishes.map(makeDish);
         updated++;
       } else {
         var shop = makeShop({
           name: r.name, cat: r.cat, price: r.price, distance: r.distance,
-          platform: r.platform, meals: r.meals, zone: r.zone
+          platform: r.platform, meals: r.meals, zone: r.zone, dishes: r.dishes
         });
         state.shops.push(shop);
         map[key] = shop;
@@ -1787,7 +2073,31 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     libQuery = '';
     $('#search').value = '';
     renderLib(); renderPick(); renderSettings(); renderQuick();
-    toast('导入完成：新增 ' + added + ' 家' + (updated ? '，更新 ' + updated + ' 家' : ''));
+    var msg = '导入完成：新增 ' + added + ' 家' + (updated ? '，更新 ' + updated + ' 家' : '');
+    msg += syncCfg.enabled ? ' · 正在同步到手机' : ' · 点「发到手机」生成同步码';
+    toast(msg);
+  }
+
+  /** 导入区下面那行：告诉用户数据怎么到手机 */
+  function renderImportSyncHint() {
+    var el = $('#importSyncHint');
+    if (!el) return;
+    el.textContent = syncCfg.enabled
+      ? '云同步已开启 · 导入后会自动同步到手机'
+      : '云同步没开 · 导入后点「发到手机」生成同步码，发微信给手机';
+  }
+
+  async function sendToPhone() {
+    try {
+      var code = await makeDataCode();
+      var box = $('#sendCode');
+      box.hidden = false;
+      box.value = code;
+      if (copyText(code)) toast('同步码已复制，发到微信 → 手机应用「同步码」');
+      else toast('已生成，选中下面的同步码复制');
+    } catch (e) {
+      toast('生成失败：' + (e && e.message ? e.message : e));
+    }
   }
 
   function parseTextarea() {
@@ -2019,8 +2329,16 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     dz.addEventListener('drop', function (e) {
       e.preventDefault();
       dz.classList.remove('is-drop');
-      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      handleImportFile(f);
+      var fs = Array.prototype.slice.call((e.dataTransfer && e.dataTransfer.files) || []);
+      if (!fs.length) return;
+      var imgs = fs.filter(function (f) { return /^image\//.test(f.type || ''); });
+      // 图片：AI 配好就走 AI（支持一次多张），否则回落到内置 OCR
+      if (imgs.length && (aiIsApi() ? !!String(aiCfg.key || '').trim() : aiLocalOnly())) {
+        if (imgs.length > 1) runAIOCRBatch(imgs);
+        else runAIOCR(imgs[0]);
+        return;
+      }
+      handleImportFile(fs[0]);
     });
   }
 
@@ -2055,6 +2373,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     });
     $$('#themeSeg button').forEach(function (b) {
       b.classList.toggle('is-on', b.dataset.theme === st.theme);
+    });
+    $$('#cdSeg button').forEach(function (b) {
+      b.classList.toggle('is-on', b.dataset.cdby === (st.cooldownBy || 'shop'));
     });
 
     var cats = allCats();
@@ -2094,7 +2415,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       if (stillOK) return;
       var excl = [];
       if (meal === 'dinner' && !state.settings.allowSame && rec.lunch) excl.push(rec.lunch.id);
-      var out = pickOne(meal, key, excl);
+      var out = pickOne(meal, key, { excludeShopIds: excl });
       if (out.item) { rec[meal] = snap(out.item); changed = true; }
     });
     if (changed) {
@@ -2213,6 +2534,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     if (syncCfg.lastSyncAt && syncCfg.enabled) {
       $('#syncDetail').textContent = '上次同步：' + new Date(syncCfg.lastSyncAt).toLocaleString() + '（' + fmtAgo(syncCfg.lastSyncAt) + '）';
     }
+    renderImportSyncHint();
   }
 
   function syncEndpoint(suffix) {
@@ -2403,6 +2725,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     clearTimeout(pushTimer);
     setSyncState('', '未启用');
     $('#syncDetail').textContent = '已断开，数据仍保存在本机';
+    renderImportSyncHint();
     toast('已断开同步');
   }
 
@@ -2426,6 +2749,789 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     $('#syncUrl').value = obj.u;
     $('#syncKey').value = obj.k;
     toast('已填入，点「启用同步」生效');
+  }
+
+  /* ============ AI 识别（本地 Ollama） ============ */
+  var AI_LS = 'eat-what-ai-v1';
+  var AI_PROMPT_CLASSIFY = [
+    '这是外卖 App 的截图。判断它是哪一种，只回答两个字之一：',
+    '',
+    '列表 —— 很多家不同的店（各有店名、距离、评分），没有菜品',
+    '菜单 —— 只有一家店，下面是这家店的很多道菜（菜名 + 价格）',
+    '',
+    '只输出：列表 或 菜单'
+  ].join('\n');
+
+  var AI_PROMPT_LIST = [
+    '这是外卖 App 的店铺列表截图。逐行抄下每一家店：',
+    '',
+    '店|店名|距离米数|区域',
+    '',
+    '要求：',
+    '- 有几家写几行，一家都不许漏。',
+    '- 只写店名，不要菜品。',
+    '- 不要"进店""月售""好评率""综合排序""附近"这类字。',
+    '- 距离只写数字。',
+    '- 区域只写「校内」或「校外」：店名或画面里有「食堂、校内、大学、宿舍、校园、学校」这些字样就写校内，否则写校外；拿不准就留空。',
+    '示例：店|二食堂麻辣香锅|250|校内'
+  ].join('\n');
+
+  var AI_PROMPT_MENU = [
+    '这是外卖 App 的店铺菜单截图。按下面两种行输出，不要多余文字：',
+    '',
+    '店|店名|距离米数|区域',
+    '菜|菜名|价格',
+    '',
+    '先输出一行「店|…」，再把菜单里每一道菜各输出一行「菜|菜名|价格」。',
+    '- 有几道菜写几行，一道都不许漏，不许合并。',
+    '- 不要"选规格""月售""好评率""去结算"这类字。',
+    '- 价格只写数字。',
+    '- 区域只写「校内」或「校外」：店名或画面里有「食堂、校内、大学、宿舍、校园、学校」这些字样就写校内，否则写校外；拿不准就留空。'
+  ].join('\n');
+
+  // 服务商预设：地址 + 默认模型
+  var AI_PROVIDERS = {
+    deepseek: { base: 'https://api.deepseek.com', model: 'deepseek-flash', name: 'DeepSeek' },
+    dashscope: { base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3-vl-plus', name: '阿里百炼' },
+    siliconflow: { base: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-VL-7B-Instruct', name: '硅基流动' },
+    openrouter: { base: 'https://openrouter.ai/api/v1', model: 'google/gemma-4-31b-it:free', name: 'OpenRouter' },
+    custom: { base: '', model: '', name: '自定义' }
+  };
+
+  var aiCfg = {
+    mode: 'api',                        // 'api' 云端 / 'ollama' 本地
+    provider: 'deepseek',
+    key: '',
+    apiModel: '',
+    apiBase: '',
+    url: 'http://127.0.0.1:11434',      // 本地 Ollama
+    model: 'qwen3-vl:4b'
+  };
+  var aiRunning = false;
+  var aiWarming = false;
+  var aiWarmMs = 0;
+
+  function loadAI() {
+    try {
+      var d = JSON.parse(localStorage.getItem(AI_LS) || '{}') || {};
+      if (d.url) aiCfg.url = String(d.url);
+      if (d.model) aiCfg.model = String(d.model);
+      if (d.mode === 'ollama' || d.mode === 'api') aiCfg.mode = d.mode;
+      if (d.provider && AI_PROVIDERS[d.provider]) aiCfg.provider = d.provider;
+      if (d.key) aiCfg.key = String(d.key);
+      if (d.apiModel) aiCfg.apiModel = String(d.apiModel);
+      if (d.apiBase) aiCfg.apiBase = String(d.apiBase);
+    } catch (e) { /* 忽略 */ }
+  }
+  function persistAI() {
+    try { localStorage.setItem(AI_LS, JSON.stringify(aiCfg)); } catch (e) { /* 忽略 */ }
+  }
+
+  function aiIsApi() { return aiCfg.mode !== 'ollama'; }
+  function aiProvider() { return AI_PROVIDERS[aiCfg.provider] || AI_PROVIDERS.custom; }
+  function aiApiBase() {
+    var b = String(aiCfg.apiBase || aiProvider().base || '').trim().replace(/\/+$/, '');
+    return b;
+  }
+  function aiApiModel() {
+    return String(aiCfg.apiModel || aiProvider().model || '').trim();
+  }
+  function aiApiReady() {
+    return !!(String(aiCfg.key || '').trim() && aiApiBase() && aiApiModel());
+  }
+
+  // 本地 Ollama 只允许 localhost 页面访问；云端 API 没这个限制
+  function aiLocalOnly() {
+    return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(location.origin);
+  }
+
+  function setAiState(kind, text) {
+    var el = $('#aiState');
+    if (!el) return;
+    el.className = 'sync-state' + (kind ? ' is-' + kind : '');
+    var b = el.querySelector('b');
+    if (b) b.textContent = text;
+  }
+
+  function renderAIUI() {
+    if (!$('#aiUrl')) return;
+    var isApi = aiIsApi();
+
+    $$('#aiModeSeg button').forEach(function (b) {
+      b.classList.toggle('is-on', (b.dataset.aimode === 'ollama') === !isApi);
+    });
+    $('#aiApiBox').hidden = !isApi;
+    $('#aiOllamaBox').hidden = isApi;
+
+    $('#aiProvider').value = aiCfg.provider;
+    $('#aiKey').value = aiCfg.key;
+    $('#aiApiModel').value = aiApiModel();
+    $('#aiBase').value = aiCfg.apiBase || aiProvider().base;
+    $('#aiBase').disabled = aiCfg.provider !== 'custom';
+    $('#aiUrl').value = aiCfg.url;
+    $('#aiModel').value = aiCfg.model;
+
+    if (isApi) {
+      if (!aiApiReady()) {
+        setAiState('', '待填 Key');
+        $('#aiDetail').textContent = '选一个服务商、填上 API Key 就能用。识别在云端跑，手机打开也能用。';
+      } else {
+        setAiState('', '已配置');
+        $('#aiDetail').textContent = aiProvider().name + ' · ' + aiApiModel() + '（点「测试连接」验证）';
+      }
+    } else if (!aiLocalOnly()) {
+      setAiState('', '需本地服务');
+      $('#aiDetail').textContent = '当前是 ' + (location.protocol === 'file:' ? '本地文件' : '线上页面') +
+        '，浏览器不允许跨域访问 Ollama。双击「预览服务器.cmd」打开后再用，或者把渠道切到云端 API。';
+    } else {
+      setAiState('', '本地模式');
+      $('#aiDetail').textContent = '本地 Ollama · ' + aiCfg.model;
+    }
+  }
+
+  async function aiCheckApi() {
+    var base = aiApiBase();
+    var model = aiApiModel();
+    if (!aiCfg.key) {
+      setAiState('err', '没填 Key');
+      $('#aiDetail').textContent = '先填 API Key（去服务商控制台复制），再点测试连接。';
+      return false;
+    }
+    if (!base) { setAiState('err', '缺地址'); $('#aiDetail').textContent = '自定义服务商要填接口地址'; return false; }
+
+    setAiState('syncing', '验证中…');
+    $('#aiDetail').textContent = '正在用 ' + model + ' 发一个最小请求验证 Key…';
+    try {
+      var res = await fetch(base + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiCfg.key },
+        body: JSON.stringify({
+          model: model,
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'ping' }]
+        })
+      });
+      if (!res.ok) {
+        var bodyText = '';
+        try { bodyText = await res.text(); } catch (e) { /* 忽略 */ }
+        throw aiHttpError(res.status, bodyText, model);
+      }
+      setAiState('ok', '已就绪');
+      $('#aiDetail').textContent = aiProvider().name + ' · ' + model + ' 验证通过，可以直接识别了。';
+      return true;
+    } catch (e) {
+      var msg = (e && e.message) ? e.message : String(e);
+      if (/Failed to fetch|NetworkError|Load failed/i.test(msg)) {
+        msg = '连不上 ' + base + '（网络不通或被拦截）';
+      }
+      setAiState('err', '验证失败');
+      setAiDetail(msg);
+      return false;
+    }
+  }
+
+  // 任何要显示给用户的文字，先把疑似密钥打码（服务商报错偶尔会回显 Key）
+  function scrubSecret(text) {
+    var t = String(text == null ? '' : text);
+    // sk-xxx / Bearer xxx / 长串 token
+    t = t.replace(/\bsk-[A-Za-z0-9._\-]{8,}/g, 'sk-***');
+    t = t.replace(/\bBearer\s+[A-Za-z0-9._\-]{8,}/gi, 'Bearer ***');
+    t = t.replace(/\b[A-Za-z0-9_\-]{32,}\b/g, '***');
+    // 兜底：如果当前 Key 真的出现在文字里，直接抹掉
+    var k = String((typeof aiCfg !== 'undefined' && aiCfg && aiCfg.key) || '').trim();
+    if (k.length >= 8) {
+      while (t.indexOf(k) >= 0) t = t.split(k).join('sk-***');
+    }
+    return t;
+  }
+
+  function setAiDetail(text) {
+    var el = $('#aiDetail');
+    if (el) el.textContent = scrubSecret(text);
+  }
+
+  function aiHttpError(status, bodyText, model) {
+    var short = scrubSecret(String(bodyText || '').replace(/\s+/g, ' ').slice(0, 120));
+    if (status === 401) return new Error('API Key 无效（HTTP 401），去服务商控制台重新复制');
+    if (status === 403) {
+      return new Error('没权限（HTTP 403）：可能是 Key 不对，也可能这个账号没有「' + (model || '') +
+        '」这个模型——换个模型名试试（百炼可用 qwen3-vl-plus）');
+    }
+    if (status === 402) return new Error('余额或免费额度不足（HTTP 402），换个免费模型或充值');
+    if (status === 429) return new Error('触发限流（HTTP 429），等几秒再试');
+    if (status === 404) return new Error('模型不存在（HTTP 404）：' + (model || '') + (short ? ' · ' + short : ''));
+    return new Error('HTTP ' + status + (short ? '：' + short : ''));
+  }
+
+  async function aiCheck() {
+    if (aiIsApi()) return aiCheckApi();
+
+    setAiState('syncing', '检查中…');
+    try {
+      var res = await fetch(aiBase() + '/api/tags');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      var names = (data.models || []).map(function (m) { return m.name; });
+      var want = aiCfg.model;
+      var hit = names.some(function (n) {
+        return n === want || n === want + ':latest' ||
+          (n.split(':')[0] === want.split(':')[0] && n.indexOf(want) === 0);
+      });
+      if (!hit) {
+        setAiState('err', '模型没下载');
+        $('#aiDetail').textContent = '连上了，但没有「' + want + '」。先运行：ollama pull ' + want;
+        return false;
+      }
+      setAiState('syncing', '加载模型…');
+      $('#aiDetail').textContent = '模型找到了，正在加载进显存（首次可能要二三十秒）…';
+      var warmed = await preheatAI();
+      if (warmed) {
+        setAiState('ok', '已就绪');
+        $('#aiDetail').textContent = '模型 ' + want + ' 已加载并常驻 · 预热耗时 ' +
+          Math.round(aiWarmMs / 1000) + ' 秒 · 本机共 ' + names.length + ' 个模型';
+      } else {
+        setAiState('ok', '已就绪');
+        $('#aiDetail').textContent = '模型 ' + want + ' 可用 · 本机共 ' + names.length + ' 个模型' +
+          '（预热没成功，首次识别会慢一些）';
+      }
+      return true;
+    } catch (e) {
+      setAiState('err', '连不上');
+      setAiDetail('连不上 ' + aiBase() + '：' + (e && e.message) +
+        '（先启动 Ollama：命令行执行 ollama serve）');
+      return false;
+    }
+  }
+
+  async function shrinkForAI(file, maxEdge) {
+    var dataUrl = await fileToDataURL(file);
+    var img = await loadImageSrc(dataUrl);
+    var w = img.naturalWidth || img.width;
+    var h = img.naturalHeight || img.height;
+    var max = maxEdge || 1024;   // 视觉 token 随边长平方增长
+    var scale = Math.min(1, max / Math.max(w, h));
+    var canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', max >= 1024 ? 0.8 : 0.72);
+  }
+
+  function aiBase() { return String(aiCfg.url || '').replace(/\/+$/, ''); }
+
+  // 云端：OpenAI 兼容 /chat/completions，流式
+  async function aiAskApi(prompt, imgB64, signal, onToken) {
+    var content = [];
+    if (imgB64) {
+      content.push({
+        type: 'image_url',
+        image_url: { url: 'data:image/jpeg;base64,' + imgB64, detail: 'high' }
+      });
+    }
+    content.push({ type: 'text', text: prompt });
+
+    var res = await fetch(aiApiBase() + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + String(aiCfg.key || '').trim()
+      },
+      signal: signal,
+      body: JSON.stringify({
+        model: aiApiModel(),
+        messages: [{ role: 'user', content: content }],
+        stream: true,
+        max_tokens: 768,
+        temperature: 0
+      })
+    });
+    if (!res.ok) {
+      var bodyText = '';
+      try { bodyText = await res.text(); } catch (e) { /* 忽略 */ }
+      throw aiHttpError(res.status, bodyText, aiApiModel());
+    }
+    if (!res.body || !res.body.getReader) {
+      var j = await res.json();
+      var msg = j && j.choices && j.choices[0] && j.choices[0].message;
+      return String((msg && msg.content) || '');
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buf = '';
+    var text = '';
+    while (true) {
+      var step = await reader.read();
+      if (step.done) break;
+      buf += decoder.decode(step.value, { stream: true });
+      var chunks = buf.split('\n');
+      buf = chunks.pop();
+      for (var i = 0; i < chunks.length; i++) {
+        var line = chunks[i].trim();
+        if (!line || line.indexOf('data:') !== 0) continue;
+        var payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        var obj;
+        try { obj = JSON.parse(payload); } catch (e) { continue; }
+        if (obj.error) throw new Error((obj.error && obj.error.message) || '服务商返回错误');
+        var ch = obj.choices && obj.choices[0];
+        var delta = ch && ch.delta && ch.delta.content;
+        if (delta) {
+          text += delta;
+          if (onToken) onToken(text);
+        }
+      }
+    }
+    return text;
+  }
+
+  // 一次请求：流式返回，按收到的片段回调进度
+  async function aiAskOllama(prompt, imgB64, signal, onToken) {
+    var body = {
+      model: aiCfg.model,
+      prompt: prompt,
+      stream: true,
+      keep_alive: '30m',          // 半小时内别再卸载，避免每次冷加载
+      options: { temperature: 0, num_predict: 768 }
+    };
+    if (imgB64) body.images = [imgB64];
+
+    var res = await fetch(aiBase() + '/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: signal,
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      if (res.status === 404) throw new Error('模型没下载：ollama pull ' + aiCfg.model);
+      if (res.status === 500) throw new Error('模型加载失败（可能是显卡被占用）');
+      throw new Error('HTTP ' + res.status);
+    }
+    if (!res.body || !res.body.getReader) {
+      var j = await res.json();
+      return String(j.response || '');
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buf = '';
+    var text = '';
+    while (true) {
+      var step = await reader.read();
+      if (step.done) break;
+      buf += decoder.decode(step.value, { stream: true });
+      var parts = buf.split('\n');
+      buf = parts.pop();
+      for (var i = 0; i < parts.length; i++) {
+        var line = parts[i].trim();
+        if (!line) continue;
+        var obj;
+        try { obj = JSON.parse(line); } catch (e) { continue; }
+        if (obj.error) throw new Error(String(obj.error));
+        if (obj.response) {
+          text += obj.response;
+          if (onToken) onToken(text);
+        }
+      }
+    }
+    return text;
+  }
+
+  async function aiAsk(prompt, imgB64, signal, onToken) {
+    if (aiIsApi()) return aiAskApi(prompt, imgB64, signal, onToken);
+    return aiAskOllama(prompt, imgB64, signal, onToken);
+  }
+
+  // 识别前的快速自检
+  async function aiProbe() {
+    if (aiIsApi()) {
+      if (!String(aiCfg.key || '').trim()) throw new Error('还没填 API Key，去设置里填一下');
+      if (!aiApiBase()) throw new Error('没填接口地址');
+      if (!aiApiModel()) throw new Error('没填模型名');
+      return true;
+    }
+    var cq = new AbortController();
+    var tm = setTimeout(function () { cq.abort(); }, 1500);
+    try {
+      var res = await fetch(aiBase() + '/api/tags', { signal: cq.signal });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await res.json();
+      var want = aiCfg.model;
+      var names = (data.models || []).map(function (m) { return m.name; });
+      var hit = names.some(function (n) {
+        return n === want || n === want + ':latest' || n.split(':')[0] === want.split(':')[0];
+      });
+      if (!hit) throw new Error('模型没下载：ollama pull ' + want);
+      return true;
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw new Error('Ollama 没响应（1.5 秒超时），先确认它启动着');
+      var m = e && e.message ? e.message : String(e);
+      if (/Failed to fetch|NetworkError|Load failed/i.test(m)) {
+        throw new Error('连不上 Ollama：先启动它（命令行执行 ollama serve）');
+      }
+      throw new Error(m);
+    } finally {
+      clearTimeout(tm);
+    }
+  }
+
+  // 本地模式才需要预热（云端 API 没有冷启动，预热等于白花钱）
+  async function preheatAI() {
+    if (aiIsApi()) return true;
+    if (!aiLocalOnly() || aiWarming) return false;
+    aiWarming = true;
+    var t0 = Date.now();
+    try {
+      await aiAskOllama('你好', '', null, null);
+      aiWarmMs = Date.now() - t0;
+      setAiState('ok', '已就绪');
+      if ($('#aiDetail')) {
+        $('#aiDetail').textContent = '模型已加载并常驻 · 预热耗时 ' + Math.round(aiWarmMs / 1000) + ' 秒';
+      }
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      aiWarming = false;
+    }
+  }
+
+  // "菜|香菇滑鸡饭|￥22" / "1. 香菇滑鸡饭 - 22" 都能吃
+  function splitAiLine(line) {
+    var t = String(line || '').trim();
+    if (!t) return null;
+    t = t.replace(/^\s*\d+\s*[.、)．]\s*/, '').replace(/^[-*·•]\s*/, '').trim();
+    var parts = t.split(/[|｜\t]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+    return { parts: parts, raw: t };
+  }
+
+  function parseDishLines(lines) {
+    var out = [];
+    lines.forEach(function (ln) {
+      var sp = splitAiLine(ln);
+      if (!sp) return;
+      var name = sp.parts[0] || '';
+      var price = 0;
+      var pv = sp.parts[1] || '';
+      var pm = String(pv).match(/\d+(?:\.\d+)?/);
+      if (!pm) pm = (sp.raw.match(/[¥￥]\s*(\d+(?:\.\d+)?)/) || sp.raw.match(/(\d+(?:\.\d+)?)\s*元/));
+      if (pm) price = Math.round(parseFloat(Array.isArray(pm) ? pm[1] : pm[0]));
+      name = name.replace(/[¥￥]\s*\d+(?:\.\d+)?/g, '')
+        .replace(/\d+(?:\.\d+)?\s*元/g, '')
+        .replace(/\s+\d{1,3}$/, '')
+        .replace(/\s*[-–—]\s*\d+\s*(?:元|米|m)?$/i, '')
+        .trim();
+      if (!name || name.length < 1) return;
+      if (isNoiseName(name) && (name.match(/[\u4e00-\u9fa5]/g) || []).length < 2) return;
+      if (NAME_HARD_NOISE.test(name)) return;
+      out.push({ name: name.slice(0, 40), price: price > 0 && price <= 999 ? price : 0 });
+    });
+    return out;
+  }
+
+  // 「店|店名|距离|区域」的字段可能被小模型写错位置：按内容认，不按槽位
+  function splitShopFields(parts) {
+    var out = { name: '', distance: '', zone: '' };
+    (parts || []).forEach(function (p, i) {
+      var t = String(p || '').trim();
+      if (!t) return;
+      if (i === 0) { out.name = t; return; }
+      if (/校内/.test(t)) { out.zone = 'school'; return; }
+      if (/校外/.test(t)) { out.zone = 'outside'; return; }
+      if (/学校|校园|食堂|宿舍|大学/.test(t)) { out.zone = 'school'; return; }
+      if (!out.distance && /^\d+(?:\.\d+)?\s*(?:m|米|km|公里)?$/i.test(t)) { out.distance = t; return; }
+      if (!out.distance && /\d/.test(t) && /米|m|km|公里/i.test(t)) { out.distance = t; return; }
+    });
+    return out;
+  }
+
+  function parseMenuOutput(text) {
+    var shopLine = null;
+    var dishLines = [];
+    String(text || '').split(/\r?\n/).forEach(function (ln) {
+      var sp = splitAiLine(ln);
+      if (!sp || !sp.parts.length) return;
+      var head = sp.parts[0];
+      var rest = sp.parts.slice(1);
+      if (/^(店|店铺)$/.test(head)) { shopLine = rest; return; }
+      if (/^(菜|菜品|菜名)$/.test(head)) { dishLines.push(rest.join('|')); return; }
+      if (!shopLine) { shopLine = sp.parts; return; }
+      dishLines.push(sp.raw);
+    });
+    var shop = {};
+    if (shopLine) {
+      shop = splitShopFields(shopLine);
+    }
+    return { shop: shop, dishes: parseDishLines(dishLines) };
+  }
+
+  // 批量识别时把同一家店合并成一条（同一家店的多屏菜单会并到一起）
+  function mergeRows(list) {
+    var map = {}, out = [];
+    (list || []).forEach(function (r) {
+      if (!r || !r.name) return;
+      var k = normName(r.name);
+      var hit = map[k];
+      if (!hit) {
+        r.dishes = (r.dishes || []).slice();
+        map[k] = r;
+        out.push(r);
+        return;
+      }
+      if (!hit.distance && r.distance) hit.distance = r.distance;
+      if (!hit.price && r.price) hit.price = r.price;
+      if (!hit.zone && r.zone) hit.zone = r.zone;
+      if (!hit.cat && r.cat) hit.cat = r.cat;
+      hit.dishes = hit.dishes || [];
+      (r.dishes || []).forEach(function (d) {
+        var dn = String(d.name || '').trim();
+        if (!dn) return;
+        var ex = null;
+        for (var i = 0; i < hit.dishes.length; i++) {
+          if (String(hit.dishes[i].name || '').trim() === dn) { ex = hit.dishes[i]; break; }
+        }
+        if (ex) { if ((d.price || 0) > (ex.price || 0)) ex.price = d.price; }
+        else hit.dishes.push({ name: dn, price: d.price || 0 });
+      });
+    });
+    return out;
+  }
+
+  // 识别一张图，返回 { rows, kind }；出错就 throw
+  async function recognizeOne(file, signal, hooks) {
+    hooks = hooks || {};
+    var stage = hooks.stage || function () {};
+    var token = hooks.token || null;
+
+    var dataUrl = await shrinkForAI(file);
+    var img = dataUrl.split(',')[1];
+
+    // 云端按量计费：分类用 512 小图，抽取才用原尺寸
+    var thumbImg = img;
+    if (aiIsApi()) {
+      try { thumbImg = (await shrinkForAI(file, 512)).split(',')[1]; } catch (e) { thumbImg = img; }
+    }
+
+    var kind = '';
+    try {
+      stage('AI 正在判断截图类型…', 20);
+      var sawClassify = false;
+      var cls = await aiAsk(AI_PROMPT_CLASSIFY, thumbImg, signal, function () { sawClassify = true; });
+      kind = /菜单/.test(cls) ? 'menu' : 'list';
+      if (!sawClassify && hooks.t0 && Date.now() - hooks.t0 > 12000) aiWarmMs = Date.now() - hooks.t0;
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw e;
+      if (aiIsApi()) throw e;   // 云端报错（Key/余额/限流）要直接告诉用户
+      kind = 'list';            // 本地判断不出来就当列表，最保守
+    }
+
+    var rows = [];
+    if (kind === 'menu') {
+      stage('AI 正在抄菜名…', 55);
+      var menuText = await aiAsk(AI_PROMPT_MENU, img, signal, token);
+      var m = parseMenuOutput(menuText);
+      var shopRow = buildRow({
+        name: m.shop.name,
+        distance: m.shop.distance,
+        zone: m.shop.zone || '',
+        dishes: m.dishes
+      }, '');
+      if (shopRow) {
+        shopRow.cat = guessCat(shopRow.name);
+        rows.push(shopRow);
+      }
+    } else {
+      stage('AI 正在抄店名…', 55);
+      var listText = await aiAsk(AI_PROMPT_LIST, img, signal, token);
+      rows = parseShops(listText).rows;   // 复用粘贴解析，模型写成 "1. 老乡鸡 - 420米" 也认
+    }
+    return { rows: rows, kind: kind };
+  }
+
+  function aiReadyGuard() {
+    if (aiIsApi()) {
+      if (!String(aiCfg.key || '').trim()) {
+        toast('还没填 API Key：设置 → AI 识别 → 填 Key 后点保存');
+        return false;
+      }
+      return true;
+    }
+    if (!aiLocalOnly()) {
+      toast('本地 Ollama 模式要用「预览服务器.cmd」打开；也可以把渠道切到云端 API');
+      return false;
+    }
+    return true;
+  }
+
+  // 批量：顺序识别，合并成一张预览
+  async function runAIOCRBatch(files) {
+    if (aiRunning) return;
+    var all = Array.prototype.slice.call(files || []);
+    var imgs = all.filter(function (f) { return /^image\//.test(f.type || ''); });
+    var skipped = all.length - imgs.length;
+    if (imgs.length > 12) { skipped += imgs.length - 12; imgs = imgs.slice(0, 12); }
+    if (!imgs.length) { toast('没有可识别的图片'); return; }
+    if (!aiReadyGuard()) return;
+
+    aiRunning = true;
+    showOcr(true);
+    var ctrl = new AbortController();
+    var t0 = Date.now();
+    var stageText = '准备中…';
+    var pct = 5;
+    var gotToken = false;
+    var ticker = setInterval(function () {
+      var s = Math.round((Date.now() - t0) / 1000);
+      var label = stageText;
+      if (!gotToken && s >= 8) label += '（云端处理中）';
+      setOcr(label + ' · 已 ' + s + 's', pct);
+    }, 500);
+    var stopBar = function () { clearInterval(ticker); showOcr(false); };
+
+    var collected = [], fails = [];
+    try {
+      $('#aiOcrBtn').disabled = true;
+      $('#aiTest').disabled = true;
+      await aiProbe();
+
+      for (var i = 0; i < imgs.length; i++) {
+        if (ocrCancelled) break;
+        stageText = '第 ' + (i + 1) + '/' + imgs.length + ' 张 · 识别中…';
+        pct = Math.round((i / imgs.length) * 100);
+        setOcr(stageText, Math.max(5, pct));
+        try {
+          var out = await recognizeOne(imgs[i], ctrl.signal, {
+            t0: t0,
+            stage: function (txt, p) {
+              stageText = '第 ' + (i + 1) + '/' + imgs.length + ' 张 · ' + txt;
+              setOcr(stageText, Math.max(5, Math.min(95, (i / imgs.length) * 100 + (p || 0) / imgs.length)));
+            },
+            token: function (txt) {
+              gotToken = true;
+              var n = txt.split('\n').filter(function (x) { return x.trim(); }).length;
+              setOcr('第 ' + (i + 1) + '/' + imgs.length + ' 张 · 已识别 ' + n + ' 行 · 已 ' +
+                Math.round((Date.now() - t0) / 1000) + 's', Math.max(5, Math.min(95, (i / imgs.length) * 100 + 30)));
+            }
+          });
+          if (out.rows && out.rows.length) collected = collected.concat(out.rows);
+          else fails.push('第 ' + (i + 1) + ' 张：没认出店铺');
+        } catch (e) {
+          if (e && e.name === 'AbortError') throw e;
+          fails.push('第 ' + (i + 1) + ' 张：' + ((e && e.message) ? e.message : String(e)));
+        }
+      }
+      stopBar();
+
+      if (ocrCancelled) { toast('已取消，已识别的结果仍会显示'); }
+
+      var merged = mergeRows(collected);
+      if (!merged.length) {
+        setAiState('err', '识别失败');
+        var why = fails.length ? fails[0] : '没认出店铺';
+        setAiDetail('批量识别失败：' + why);
+        toast('批量识别失败：' + why);
+        return;
+      }
+      setAiState('ok', '已就绪');
+      openPreview(merged, 0);
+      var dn = merged.reduce(function (n, r) { return n + (r.dishes ? r.dishes.length : 0); }, 0);
+      var secs = ((Date.now() - t0) / 1000).toFixed(0);
+      var msg = '识别完成：' + merged.length + ' 家' + (dn ? ' · ' + dn + ' 道菜' : '') + ' · ' + secs + 's';
+      if (fails.length) msg += ' · ' + fails[0].slice(0, 34);
+      if (skipped > 0) msg += ' · 跳过 ' + skipped + ' 个文件';
+      toast(msg);
+      if (fails.length) {
+        setAiDetail('部分失败：' + fails.join('；'));
+      }
+    } catch (e) {
+      stopBar();
+      var msg2 = (e && e.name === 'AbortError') ? '超时或已取消' : ((e && e.message) ? e.message : String(e));
+      setAiState('err', '识别失败');
+      setAiDetail('批量识别失败：' + msg2);
+      toast('批量识别失败：' + msg2);
+    } finally {
+      stopBar();
+      aiRunning = false;
+      ocrCancelled = false;
+      $('#aiOcrBtn').disabled = false;
+      $('#aiTest').disabled = false;
+    }
+  }
+
+  async function runAIOCR(file) {
+    if (aiRunning || !file) return;
+    if (!aiReadyGuard()) return;
+    aiRunning = true;
+    showOcr(true);
+    setOcr(aiIsApi() ? '正在准备…' : '正在连接 Ollama…', 5);
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, aiIsApi() ? 60000 : 90000);
+    var t0 = Date.now();
+    var stage = aiIsApi() ? '正在准备…' : '正在连接 Ollama…';
+    var pct = 6;
+    var gotToken = false;
+    var ticker = setInterval(function () {
+      var s = Math.round((Date.now() - t0) / 1000);
+      var label = stage;
+      if (!gotToken && s >= 8) label = aiIsApi() ? '云端模型正在思考…' : '模型加载中，请稍候…';
+      setOcr(label + ' · 已 ' + s + 's', pct);
+    }, 500);
+    var stopBar = function () {
+      clearInterval(ticker);
+      clearTimeout(timer);
+      showOcr(false);
+    };
+    try {
+      $('#aiOcrBtn').disabled = true;
+      $('#aiTest').disabled = true;
+
+      // 先花 1 秒确认服务在、模型在，别让人干等
+      stage = aiIsApi() ? '正在检查服务…' : '正在检查 Ollama…';
+      pct = 8;
+      await aiProbe();
+
+      var out = await recognizeOne(file, ctrl.signal, {
+        t0: t0,
+        stage: function (txt, p) { stage = txt; pct = p || pct; },
+        token: function (txt) {
+          gotToken = true;
+          var n = txt.split('\n').filter(function (x) { return x.trim(); }).length;
+          setOcr(stage + ' 已识别 ' + n + ' 行 · 已 ' + Math.round((Date.now() - t0) / 1000) + 's',
+            Math.min(88, 55 + n * 4));
+        }
+      });
+      var rows = out.rows;
+      var kind = out.kind;
+
+      stopBar();
+      if (!rows.length) { toast('AI 没看出店铺，换张更清楚的截图'); return; }
+      setAiState('ok', '已就绪');
+      openPreview(rows, 0);
+      var dn = rows.reduce(function (n, r) { return n + (r.dishes ? r.dishes.length : 0); }, 0);
+      var secs = ((Date.now() - t0) / 1000).toFixed(1);
+      toast('AI 认出 ' + rows.length + ' ' + (kind === 'menu' ? '家菜单' : '家店') + (dn ? ' · ' + dn + ' 道菜' : '') + ' · ' + secs + 's');
+    } catch (e) {
+      stopBar();
+      var msg;
+      if (e && e.name === 'AbortError') {
+        msg = '超过 90 秒没出结果。多半是模型首次加载，或显卡被别的程序占着';
+      } else {
+        msg = (e && e.message) ? e.message : String(e);
+      }
+      setAiState('err', '识别失败');
+      setAiDetail('识别失败：' + msg);
+      toast('AI 识别失败：' + msg);
+      if (window.confirm('AI 识别失败：' + msg + '\n\n要改用内置文字识别（本地 OCR）再试一次吗？')) {
+        setTimeout(function () { runOCR(file); }, 200);
+      }
+    } finally {
+      stopBar();
+      clearInterval(ticker);
+      clearTimeout(timer);
+      aiRunning = false;
+      $('#aiOcrBtn').disabled = false;
+      $('#aiTest').disabled = false;
+    }
   }
 
   /* ============ 主题 ============ */
@@ -2558,6 +3664,58 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
 
     $('#parseBtn').addEventListener('click', parseTextarea);
     $('#ocrBtn').addEventListener('click', function () { $('#ocrFile').click(); });
+    $('#aiOcrBtn').addEventListener('click', function () { $('#aiFile').click(); });
+    $('#aiFile').addEventListener('change', function (e) {
+      var fs = Array.prototype.slice.call(e.target.files || []);
+      if (fs.length === 1) runAIOCR(fs[0]);
+      else if (fs.length > 1) runAIOCRBatch(fs);
+      e.target.value = '';
+    });
+    // 渠道切换
+    $('#aiModeSeg').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-aimode]');
+      if (!b) return;
+      aiCfg.mode = b.dataset.aimode;
+      persistAI();
+      renderAIUI();
+      toast(aiCfg.mode === 'api' ? '已切到云端 API' : '已切到本地 Ollama');
+    });
+    // 选服务商 → 自动填地址和推荐模型
+    $('#aiProvider').addEventListener('change', function () {
+      var p = AI_PROVIDERS[this.value] || AI_PROVIDERS.custom;
+      $('#aiBase').disabled = this.value !== 'custom';
+      $('#aiBase').value = p.base;
+      $('#aiApiModel').value = p.model;
+    });
+
+    function readAIFields() {
+      aiCfg.provider = $('#aiProvider').value;
+      aiCfg.key = ($('#aiKey').value || '').trim();
+      aiCfg.apiModel = ($('#aiApiModel').value || '').trim();
+      aiCfg.apiBase = ($('#aiBase').value || '').trim();
+      aiCfg.url = ($('#aiUrl').value || '').trim() || 'http://127.0.0.1:11434';
+      aiCfg.model = ($('#aiModel').value || '').trim() || 'qwen3-vl:4b';
+    }
+
+    $('#aiSave').addEventListener('click', function () {
+      readAIFields();
+      persistAI();
+      renderAIUI();
+      toast(aiIsApi() ? 'API 配置已保存' : '本地配置已保存');
+    });
+    $('#aiClearKey').addEventListener('click', function () {
+      aiCfg.key = '';
+      $('#aiKey').value = '';
+      persistAI();
+      renderAIUI();
+      toast('已清除 API Key，下次识别要重新填');
+    });
+    $('#aiTest').addEventListener('click', function () {
+      readAIFields();
+      persistAI();
+      if (!aiIsApi() && !aiLocalOnly()) { toast('本地模式要用「预览服务器.cmd」打开'); return; }
+      aiCheck();
+    });
     $('#ocrFile').addEventListener('change', function (e) {
       var f = e.target.files && e.target.files[0];
       if (f) { $('#bulkText').value = ''; runOCR(f); }
@@ -2569,6 +3727,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       e.target.value = '';
     });
     $('#tplBtn').addEventListener('click', downloadTemplate);
+    $('#sendPhoneBtn').addEventListener('click', sendToPhone);
     bindDropzone();
 
     $('#modal').addEventListener('click', function (e) {
@@ -2633,6 +3792,13 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
       if (!b) return;
       state.settings.theme = b.dataset.theme;
       save(); applyTheme(); renderSettings();
+    });
+    $('#cdSeg').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-cdby]');
+      if (!b) return;
+      state.settings.cooldownBy = b.dataset.cdby;
+      save(); renderSettings();
+      toast(b.dataset.cdby === 'dish' ? '重复限制：按菜品避开' : '重复限制：按店铺避开');
     });
     $('#exportBtn').addEventListener('click', onExport);
 
@@ -2701,6 +3867,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
   function boot() {
     state = load();
     loadSync();
+    loadAI();
     if (!storageOK) $('#banner').classList.add('is-on');
     applyTheme();
     ensureToday();
@@ -2710,6 +3877,14 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:2.5px solid va
     renderSettings();
     renderQuick();
     renderSyncUI();
+    renderAIUI();
+
+    // 只有本地 Ollama 模式才预热（云端 API 没有冷启动）
+    if (!aiIsApi() && aiLocalOnly()) {
+      setTimeout(function () {
+        if (!aiRunning && !aiWarming) preheatAI();
+      }, 1500);
+    }
     if ($('#buildLine')) $('#buildLine').textContent = '构建 ' + BUILD + ' · ' + BUILD_DATE;
     try { console.log('今天吃什么 · 构建', BUILD); } catch (e) { /* 忽略 */ }
 
